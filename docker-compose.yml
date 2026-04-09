@@ -1,0 +1,6 @@
+services:
+  api:
+    image: rcestudio/groots-api:${API_VERSION:-latest}
+    build:
+      context: ./backend
+      target: api-prod

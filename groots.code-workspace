@@ -1,0 +1,36 @@
+{
+  "folders": [
+    {
+      "name": "groots (root)",
+      "path": ".",
+    },
+    {
+      "name": "groots_app (Flutter)",
+      "path": "groots_app",
+    },
+    {
+      "name": "backend (Python)",
+      "path": "backend",
+    },
+  ],
+  "settings": {
+    "dart.flutterSdkPath": "${env:HOME}/Applications/flutter",
+    "dart.projectSearchDepth": 1,
+    "[dart]": {
+      "editor.formatOnSave": true,
+      "editor.rulers": [100],
+    },
+    "[python]": {
+      "editor.formatOnSave": true,
+      "editor.defaultFormatter": "ms-python.black-formatter",
+    },
+  },
+  "extensions": {
+    "recommendations": [
+      "dart-code.flutter",
+      "dart-code.dart-code",
+      "ms-python.python",
+      "ms-python.black-formatter",
+    ],
+  },
+}

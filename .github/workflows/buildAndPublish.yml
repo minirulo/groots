@@ -1,0 +1,48 @@
+name: Build and publish to Docker Hub
+
+on:
+    push:
+        branches:
+            - main
+        paths:
+            - "backend/**"
+
+jobs:
+    prepare:
+        name: Compute short SHA
+        runs-on: ["self-hosted", "linux", "x64"]
+        outputs:
+            shortSha: ${{ steps.sha.outputs.shortSha }}
+        steps:
+            - id: sha
+              run: echo "shortSha=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+    buildAndOrPublish:
+        needs: prepare
+        name: Build and Publish API
+        runs-on: ["self-hosted", "linux", "x64"]
+        env:
+            API_VERSION: ${{ needs.prepare.outputs.shortSha }}
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v3
+              with:
+                  fetch-depth: 0
+
+            - name: Build api
+              run: |
+                  docker compose \
+                      -f docker-compose.yml \
+                      build \
+                      --no-cache \
+                      api
+
+            - name: Publish api
+              run: |
+                  # Push version tag
+                  docker compose -f docker-compose.yml push api
+
+                  # Tag as latest and push
+                  IMAGE_NAME=$(docker compose -f docker-compose.yml config | grep "image:" | grep api | awk '{print $2}')
+                  docker tag ${IMAGE_NAME} ${IMAGE_NAME%:*}:latest
+                  docker push ${IMAGE_NAME%:*}:latest

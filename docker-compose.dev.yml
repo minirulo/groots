@@ -1,0 +1,64 @@
+services:
+  # ── FastAPI backend ───────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./backend
+      target: api-dev
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./backend/src:/app
+    env_file:
+      - .config/.env.dev
+    environment:
+      MONGO_SERVER: db
+      IPFS_API_HOST: ipfs
+      IPFS_GATEWAY_HOST: ipfs
+    depends_on:
+      db:
+        condition: service_healthy
+      ipfs:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── MongoDB ───────────────────────────────────────────────────────────────────
+  db:
+    image: mongo:7.0
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: groots
+      MONGO_INITDB_ROOT_PASSWORD: groots
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── IPFS / Kubo central node ──────────────────────────────────────────────────
+  ipfs:
+    image: ipfs/kubo:latest
+    ports:
+      - "4001:4001" # libp2p swarm (P2P traffic)
+      - "5001:5001" # Kubo HTTP RPC API  (internal only in prod)
+      - "8080:8080" # IPFS HTTP gateway
+    volumes:
+      - ipfs_data:/data/ipfs
+    environment:
+      # Disable public gateway listing for privacy (content still accessible by CID)
+      IPFS_PROFILE: server
+    healthcheck:
+      test: ["CMD", "ipfs", "id"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  mongo_data:
+  ipfs_data:
