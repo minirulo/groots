@@ -18,7 +18,7 @@ async def get_ipfs_peer_id() -> dict:
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                f"{settings.IPFS_API_URL}/api/v0/id",
+                f"{settings.IPFS_KUBO_URL}/api/v0/id",
                 timeout=5.0,
             )
         data = response.json()

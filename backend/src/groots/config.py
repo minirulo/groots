@@ -82,9 +82,19 @@ class Settings(BaseSettings):
     IPFS_GATEWAY_HOST: str = "localhost"
     IPFS_GATEWAY_PORT: int = 8080
 
+    # Direct Kubo RPC — used for operations the cluster proxy doesn't handle
+    # (e.g. /api/v0/id). Defaults to same host as IPFS_API but on port 5001.
+    IPFS_KUBO_HOST: str = ""
+    IPFS_KUBO_PORT: int = 5001
+
     @property
     def IPFS_API_URL(self) -> str:
         return f"http://{self.IPFS_API_HOST}:{self.IPFS_API_PORT}"
+
+    @property
+    def IPFS_KUBO_URL(self) -> str:
+        host = self.IPFS_KUBO_HOST or self.IPFS_API_HOST
+        return f"http://{host}:{self.IPFS_KUBO_PORT}"
 
     @property
     def IPFS_GATEWAY_URL(self) -> str:
