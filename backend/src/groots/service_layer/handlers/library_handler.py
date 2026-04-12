@@ -72,7 +72,7 @@ async def _run_fingerprint_pipeline(
     central_cands = await uow.fingerprints.find_central_candidates(duration)
     matched_central_id = None
     if central_cands:
-        best_id, score = uow.fingerprinter.best_match(
+        best_id, _ = uow.fingerprinter.best_match(
             fp_hex, [(c.id, c.fingerprint_hex) for c in central_cands]
         )
         if best_id:
@@ -198,6 +198,7 @@ async def handle_remove_track(cmd: RemoveTrack, uow: AbstractUnitOfWork) -> None
 
         if track.pinned:
             await uow.ipfs.pin_rm(track.cid)
+            await uow.ipfs.mfs_rm(f"{track.title}{_ext_for_mime(track.mime_type)}")
 
         user = await uow.users.get(cmd.user_id)
         user.used_storage_bytes = max(
@@ -313,6 +314,7 @@ async def handle_pin_track(cmd: PinTrack, uow: AbstractUnitOfWork) -> None:
             raise TrackNotOwnedByUser()
 
         await uow.ipfs.pin_add(cmd.cid)
+        await uow.ipfs.mfs_copy(cmd.cid, f"{track.title}{_ext_for_mime(track.mime_type)}")
 
         track.pinned = True
         await uow.tracks.update(track)

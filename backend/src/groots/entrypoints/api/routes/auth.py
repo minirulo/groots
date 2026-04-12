@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from dependency_injector.wiring import Provide, inject
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Security
 from fastapi.security import OAuth2PasswordRequestForm
 
 from groots.domain.commands import LoginUser, RegisterUser
@@ -13,6 +13,8 @@ from groots.entrypoints.api.routes.schemas.user import (
 )
 from groots.service_layer.errors import to_http_exception
 from groots.service_layer.messagebus import MessageBus
+from groots.entrypoints.api.auth import get_current_oauth_user
+from groots.config import settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -20,8 +22,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/register", status_code=201)
 @inject
 async def register(
+    _: Annotated[dict, Security(get_current_oauth_user, scopes=[settings.USER_WRITE])],
     body: RegisterRequest,
-    bus: MessageBus = Depends(Provide[Container.messagebus]),
+    bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> dict:
     try:
         return await bus.handle(
@@ -29,13 +32,14 @@ async def register(
                 username=body.username,
                 email=body.email,
                 password=body.password,
+                role_id=body.role_id,
             )
         )
     except SoundNetError as e:
         raise to_http_exception(e)
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login")
 @inject
 async def login(
     form: Annotated[OAuth2PasswordRequestForm, Depends()],

@@ -10,10 +10,12 @@ from groots.adapters.repositories.fingerprint_repo import FingerprintRepository
 from groots.adapters.repositories.playlist_repo import PlaylistRepository
 from groots.adapters.repositories.track_repo import TrackRepository
 from groots.adapters.repositories.user_repo import UserRepository
+from groots.adapters.repositories.role_repo import RoleRepository
 
 
 class AbstractUnitOfWork(abc.ABC):
     users: UserRepository
+    roles: RoleRepository
     tracks: TrackRepository
     albums: AlbumRepository
     playlists: PlaylistRepository
@@ -54,6 +56,7 @@ class MongoUnitOfWork(AbstractUnitOfWork):
         self._client = AsyncIOMotorClient(self._db_uri)
         self._db = self._client[self._db_name]
         self.users = UserRepository(self._db)
+        self.roles = RoleRepository(self._db)
         self.tracks = TrackRepository(self._db)
         self.albums = AlbumRepository(self._db)
         self.playlists = PlaylistRepository(self._db)

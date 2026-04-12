@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 import bcrypt
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import OAuth2PasswordBearer, SecurityScopes
 from jose import JWTError, jwt
 
 from groots.config import settings
@@ -29,7 +29,10 @@ def create_access_token(data: dict) -> str:
     )
 
 
-def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
+def get_current_oauth_user(
+    security_scopes: SecurityScopes,
+    token: str = Depends(oauth2_scheme),
+) -> dict:
     exc = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -42,6 +45,21 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
         user_id: str = payload.get("sub")
         if not user_id:
             raise exc
+
+        token_scope_str: str = payload.get("scope", "")
+
+        if isinstance(token_scope_str, str):
+            token_scopes = token_scope_str.split()
+
+            for scope in security_scopes.scopes:
+                print(scope)
+                print(token_scopes)
+                if scope not in token_scopes:
+                    raise HTTPException(
+                        403,
+                        detail=f'Missing "{scope}" scope',
+                    )
+
         return {
             "user_id": user_id,
             "email": payload.get("email"),
@@ -49,12 +67,3 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
         }
     except JWTError:
         raise exc
-
-
-def get_current_admin(current_user: dict = Depends(get_current_user)) -> dict:
-    if not current_user.get("is_admin"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin privileges required",
-        )
-    return current_user

@@ -1,16 +1,17 @@
 from typing import Annotated
 
 from dependency_injector.wiring import Provide, inject
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, UploadFile, Security
 
 from groots.domain.commands import IngestCentralTrack
 from groots.domain.errors import SoundNetError
-from groots.entrypoints.api.auth import get_current_admin
+from groots.entrypoints.api.auth import get_current_oauth_user
 from groots.entrypoints.api.container import Container
 from groots.entrypoints.api import views
 from groots.service_layer.errors import to_http_exception
 from groots.service_layer.messagebus import MessageBus
 from groots.service_layer.unit_of_work import AbstractUnitOfWork
+from groots.config import settings
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -19,7 +20,9 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 @inject
 async def ingest_central_track(
     file: Annotated[UploadFile, File()],
-    _admin: Annotated[dict, Depends(get_current_admin)],
+    _: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.LIBRARY_ADMIN])
+    ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> dict:
     """
@@ -45,7 +48,9 @@ async def ingest_central_track(
 @router.get("/library")
 @inject
 async def list_central_library(
-    _admin: Annotated[dict, Depends(get_current_admin)],
+    _: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.LIBRARY_ADMIN])
+    ],
     uow: Annotated[AbstractUnitOfWork, Depends(Provide[Container.uow])],
 ) -> list[dict]:
     """Admin: list all tracks in the central library."""
@@ -55,7 +60,9 @@ async def list_central_library(
 @router.get("/fingerprints")
 @inject
 async def list_fingerprints(
-    _admin: Annotated[dict, Depends(get_current_admin)],
+    _: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.LIBRARY_ADMIN])
+    ],
     uow: Annotated[AbstractUnitOfWork, Depends(Provide[Container.uow])],
 ) -> list[dict]:
     """Admin: inspect the global fingerprint database."""

@@ -10,6 +10,10 @@ class UserNotFound(SoundNetError):
     pass
 
 
+class RoleNotFound(SoundNetError):
+    pass
+
+
 class InvalidCredentials(SoundNetError):
     pass
 

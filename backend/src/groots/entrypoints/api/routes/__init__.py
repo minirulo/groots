@@ -5,6 +5,7 @@ from groots.entrypoints.api.routes import (
     albums,
     auth,
     genres,
+    ipfs,
     library,
     playlists,
     users,
@@ -18,3 +19,4 @@ router.include_router(albums.router)
 router.include_router(playlists.router)
 router.include_router(genres.router)
 router.include_router(admin.router)
+router.include_router(ipfs.router)

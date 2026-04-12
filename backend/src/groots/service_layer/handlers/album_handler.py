@@ -1,3 +1,4 @@
+from groots.service_layer.handlers.library_handler import _ext_for_mime
 from groots.domain.commands import (
     AssignTrackToAlbum,
     CreateAlbum,
@@ -66,6 +67,20 @@ async def handle_delete_album(cmd: DeleteAlbum, uow: AbstractUnitOfWork) -> None
         album = await uow.albums.get(cmd.album_id)
         if not album:
             raise AlbumNotFound(cmd.album_id)
+
+        # Cascade: delete all tracks that belong to this album
+        tracks = await uow.tracks.list_by_album(cmd.album_id)
+        for track in tracks:
+            if track.pinned:
+                await uow.ipfs.pin_rm(track.cid)
+                await uow.ipfs.mfs_rm(f"{track.title}{_ext_for_mime(track.mime_type)}")
+            user = await uow.users.get(track.user_id)
+            if user:
+                user.used_storage_bytes = max(
+                    0, user.used_storage_bytes - track.file_size_bytes
+                )
+                await uow.users.update(user)
+            await uow.tracks.delete(track.id)
 
         await uow.albums.delete(cmd.album_id)
         await uow.commit()

@@ -11,7 +11,10 @@
     {
       "name": "backend (Python)",
       "path": "backend",
-    },
+    },{
+      "name": "webui (IPFS)",
+      "path": "ipfs-webui",  
+    }
   ],
   "settings": {
     "dart.flutterSdkPath": "${env:HOME}/Applications/flutter",

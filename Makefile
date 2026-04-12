@@ -3,10 +3,11 @@ IOS_SIM     = 353D2240-AB0E-4675-AA44-B9B07C93A35D
 IOS_DEVICE  = 00008110-0010299801E3801E
 
 .PHONY: help start-dev dev stop logs shell-api shell-db unit-tests lint fmt \
+        ipfs-peer-id cluster-peer-id \
         app-get app-dev app-prod app-build-dev app-build-prod \
         ios-sim ios-dev ios-prod
 
-COMPOSE = docker compose -f docker-compose.dev.yml
+COMPOSE = docker compose -f docker-compose.dev.yml --env-file .config/.env.dev
 FLUTTER = $(HOME)/Applications/flutter/bin/flutter
 APP_DIR = groots_app
 
@@ -39,7 +40,10 @@ shell-api:
 	$(COMPOSE) exec api bash
 
 shell-db:
-	$(COMPOSE) exec db mongosh -u groots -p groots --authenticationDatabase admin groots
+	$(COMPOSE) exec db mongosh \
+		-u "$$(grep MONGO_INITDB_ROOT_USERNAME .config/.env.dev | cut -d= -f2)" \
+		-p "$$(grep MONGO_INITDB_ROOT_PASSWORD .config/.env.dev | cut -d= -f2)" \
+		--authenticationDatabase admin groots
 
 unit-tests:
 	$(COMPOSE) exec api pytest tests/unit -v --cov=groots --cov-report=term-missing
@@ -49,6 +53,20 @@ lint:
 
 fmt:
 	$(COMPOSE) exec api black groots
+
+# Print the Kubo peer multiaddr — use this to manually connect the Mac node:
+#   Get.find<IpfsLocalNode>().connectToPeer('<output>')
+ipfs-peer-id:
+	$(COMPOSE) exec ipfs ipfs id --format='<addrs>' | tr ',' '\n' | grep tcp/4001
+
+# Print the cluster peer ID for debugging
+cluster-peer-id:
+	$(COMPOSE) exec ipfs-cluster ipfs-cluster-ctl id
+
+# Start the ipfs-webui dev server (http://localhost:3000)
+# CORS is pre-configured via scripts/ipfs-bootstrap-rm.sh for this origin.
+webui:
+	cd ipfs-webui && npm start
 
 # ── Flutter macOS app ─────────────────────────────────────────────────────────
 app-get:

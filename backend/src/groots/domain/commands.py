@@ -6,6 +6,7 @@ class RegisterUser:
     username: str
     email: str
     password: str
+    role_id: str
 
 
 @dataclass
@@ -53,6 +54,7 @@ class UploadTrack:
 
 
 # ── Album commands ────────────────────────────────────────────────────────────
+
 
 @dataclass
 class CreateAlbum:
@@ -109,6 +111,7 @@ class UnassignTrackFromAlbum:
 
 # ── Playlist commands ─────────────────────────────────────────────────────────
 
+
 @dataclass
 class CreatePlaylist:
     user_id: str
@@ -144,9 +147,11 @@ class RemoveTrackFromPlaylist:
 
 # ── Central library commands ──────────────────────────────────────────────────
 
+
 @dataclass
 class IngestCentralTrack:
     """Admin command: add an audio file to the server-managed central library."""
+
     filename: str
     content: bytes
     file_size_bytes: int

@@ -11,6 +11,10 @@ class TrackRepository(BaseMongoRepository[Track]):
         cursor = self.collection.find({"user_id": user_id}, session=self.session)
         return [from_document(doc, Track) async for doc in cursor]
 
+    async def list_by_album(self, album_id: str) -> list[Track]:
+        cursor = self.collection.find({"album_id": album_id}, session=self.session)
+        return [from_document(doc, Track) async for doc in cursor]
+
     async def get_by_cid(self, cid: str, user_id: str) -> Track | None:
         doc = await self.collection.find_one(
             {"cid": cid, "user_id": user_id}, session=self.session

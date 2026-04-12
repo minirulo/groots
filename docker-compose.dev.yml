@@ -11,28 +11,35 @@ services:
     env_file:
       - .config/.env.dev
     environment:
-      MONGO_SERVER: db
-      IPFS_API_HOST: ipfs
-      IPFS_GATEWAY_HOST: ipfs
+      - MONGO_SERVER
+      # Route all IPFS operations through the cluster proxy (port 9095).
+      # The proxy is Kubo-API-compatible so IPFSClient needs no changes;
+      # it also intercepts pin/add calls to track them cluster-side.
+      - IPFS_API_HOST
+      - IPFS_API_PORT
+      # Content is still served directly from the Kubo gateway.
+      - IPFS_GATEWAY_HOST
     depends_on:
       db:
         condition: service_healthy
-      ipfs:
+      ipfs-cluster:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 5s
       timeout: 3s
       retries: 10
 
   # ── MongoDB ───────────────────────────────────────────────────────────────────
   db:
-    image: mongo:7.0
+    build:
+      context: ./db
     ports:
       - "27017:27017"
     environment:
+      MONGO_DB: groots
       MONGO_INITDB_ROOT_USERNAME: groots
-      MONGO_INITDB_ROOT_PASSWORD: groots
+      MONGO_INITDB_ROOT_PASSWORD: password
     volumes:
       - mongo_data:/data/db
     healthcheck:
@@ -41,24 +48,82 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── IPFS / Kubo central node ──────────────────────────────────────────────────
+  # ── IPFS / Kubo node ─────────────────────────────────────────────────────────
   ipfs:
     image: ipfs/kubo:latest
     ports:
-      - "4001:4001" # libp2p swarm (P2P traffic)
-      - "5001:5001" # Kubo HTTP RPC API  (internal only in prod)
-      - "8080:8080" # IPFS HTTP gateway
+      - "4001:4001" # libp2p swarm — Mac peer connects here
+      - "5001:5001" # RPC API (Kubo v0.27+ no longer bundles the Web UI)
+      - "8080:8080" # HTTP gateway — content streaming
     volumes:
       - ipfs_data:/data/ipfs
+      # Private-network swarm key — only nodes sharing this key can join.
+      # The Mac client uses the same key (groots_app/assets/swarm.key).
+      - ./.config/swarm.key:/data/ipfs/swarm.key:ro
+      # container-init.d scripts run after `ipfs init`, before daemon start.
+      - ./scripts/ipfs-bootstrap-rm.sh:/container-init.d/001-bootstrap-rm.sh:ro
     environment:
-      # Disable public gateway listing for privacy (content still accessible by CID)
       IPFS_PROFILE: server
     healthcheck:
       test: ["CMD", "ipfs", "id"]
-      interval: 15s
-      timeout: 10s
-      retries: 5
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── IPFS Cluster ─────────────────────────────────────────────────────────────
+  ipfs-cluster:
+    image: ipfs/ipfs-cluster:latest
+    depends_on:
+      ipfs:
+        condition: service_healthy
+    environment:
+      - CLUSTER_PEERNAME=groots-cluster-master
+      # Shared secret authenticating cluster peers to each other.
+      # Generate: python3 -c "import secrets; print(secrets.token_hex(32))"
+      - CLUSTER_SECRET
+      # Where the cluster daemon finds its Kubo node
+      - CLUSTER_IPFSHTTP_NODEMULTIADDRESS=/dns4/ipfs/tcp/5001
+      # REST API — cluster-native operations (pin ls, status, health)
+      - CLUSTER_RESTAPI_HTTPLISTENMULTIADDRESS=/ip4/0.0.0.0/tcp/9094
+      # Proxy — Kubo-compatible API with cluster-aware pin tracking
+      - CLUSTER_IPFSPROXY_LISTENMULTIADDRESS=/ip4/0.0.0.0/tcp/9095
+      - CLUSTER_IPFSPROXY_NODEMULTIADDRESS=/dns4/ipfs/tcp/5001
+      - CLUSTER_MONITORPINGINTERVAL=2s
+    ports:
+      - "9094:9094" # Cluster REST API
+      - "9095:9095" # Cluster proxy (Kubo-API-compatible)
+      - "9096:9096" # Cluster swarm (peer-to-peer between cluster nodes)
+    volumes:
+      - cluster_data:/data/ipfs-cluster
+    healthcheck:
+      test: ["CMD", "ipfs-cluster-ctl", "id"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── IPFS Web UI (dev) ────────────────────────────────────────────────────────
+  # Dev: hot-reload dev server from the local ipfs-webui checkout.
+  # The browser connects directly to localhost:5001 (Kubo API) — no proxy needed.
+  # For production, use ipfs-webui/Dockerfile (nginx + configurable IPFS_API_URL).
+  ipfs-web-ui:
+    build:
+      dockerfile_inline: |
+        FROM node:22-alpine
+        WORKDIR /app
+        COPY ./ipfs-webui/package*.json ./
+        RUN npm ci --ignore-scripts
+        COPY ./ipfs-webui .
+        EXPOSE 3000
+        CMD ["npm", "start"]
+    depends_on:
+      ipfs:
+        condition: service_healthy
+    environment:
+      - IPFS_API_URL=http://ipfs:5001 # Kubo API (no cluster proxy in dev)
+    ports:
+      - "3000:3000" # Web UI dev server
 
 volumes:
   mongo_data:
   ipfs_data:
+  cluster_data:

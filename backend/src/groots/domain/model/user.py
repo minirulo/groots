@@ -9,6 +9,7 @@ class User:
     username: str
     email: str
     hashed_password: str
+    role_id: str
     id: str = field(default_factory=new_id)
     created_at: datetime = field(default_factory=datetime.utcnow)
     is_active: bool = True

@@ -59,6 +59,46 @@ class IPFSClient:
         data = json.loads(last_line)
         return data["Hash"]
 
+    async def mfs_rm(self, filename: str) -> None:
+        """
+        Remove /groots/<filename> from the Kubo MFS.
+
+        Errors are silently ignored (file may not exist in MFS).
+        """
+        safe = filename.replace("/", "_")
+        async with httpx.AsyncClient() as client:
+            try:
+                await client.post(
+                    f"{self.api_url}/api/v0/files/rm",
+                    params={"arg": f"/groots/{safe}"},
+                    timeout=10.0,
+                )
+            except Exception:
+                pass
+
+    async def mfs_copy(self, cid: str, filename: str) -> None:
+        """
+        Copy a CID into the Kubo MFS at /groots/<filename>.
+
+        This makes the file appear under the Files tab in ipfs-webui.
+        Errors are silently ignored — MFS visibility is best-effort.
+        """
+        safe = filename.replace("/", "_")
+        async with httpx.AsyncClient() as client:
+            try:
+                await client.post(
+                    f"{self.api_url}/api/v0/files/mkdir",
+                    params={"arg": "/groots", "parents": "true"},
+                    timeout=10.0,
+                )
+                await client.post(
+                    f"{self.api_url}/api/v0/files/cp",
+                    params=[("arg", f"/ipfs/{cid}"), ("arg", f"/groots/{safe}")],
+                    timeout=10.0,
+                )
+            except Exception:
+                pass  # MFS copy is best-effort
+
     def stream_url(self, cid: str) -> str:
         """
         Return the gateway URL for streaming a CID.

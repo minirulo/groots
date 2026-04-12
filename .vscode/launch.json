@@ -5,7 +5,7 @@
             "name": "macOS (development)",
             "request": "launch",
             "type": "dart",
-            "program": "soundnet_app/lib/development.dart",
+            "program": "groots_app/lib/development.dart",
             "flutterMode": "debug",
             "deviceId": "macos"
         },
@@ -13,7 +13,7 @@
             "name": "macOS (development, profile)",
             "request": "launch",
             "type": "dart",
-            "program": "soundnet_app/lib/development.dart",
+            "program": "groots_app/lib/development.dart",
             "flutterMode": "profile",
             "deviceId": "macos"
         },
@@ -21,7 +21,7 @@
             "name": "macOS (production)",
             "request": "launch",
             "type": "dart",
-            "program": "soundnet_app/lib/production.dart",
+            "program": "groots_app/lib/production.dart",
             "flutterMode": "release",
             "deviceId": "macos"
         },
@@ -29,7 +29,7 @@
             "name": "iPhone 16 Pro Max sim (development)",
             "request": "launch",
             "type": "dart",
-            "program": "soundnet_app/lib/development.dart",
+            "program": "groots_app/lib/development.dart",
             "flutterMode": "debug",
             "deviceId": "353D2240-AB0E-4675-AA44-B9B07C93A35D"
         },
@@ -37,7 +37,7 @@
             "name": "Raul's iPhone (development)",
             "request": "launch",
             "type": "dart",
-            "program": "soundnet_app/lib/development.dart",
+            "program": "groots_app/lib/development.dart",
             "flutterMode": "debug",
             "deviceId": "00008110-0010299801E3801E"
         },
@@ -45,7 +45,7 @@
             "name": "Raul's iPhone (production)",
             "request": "launch",
             "type": "dart",
-            "program": "soundnet_app/lib/production.dart",
+            "program": "groot_app/lib/production.dart",
             "flutterMode": "release",
             "deviceId": "00008110-0010299801E3801E"
         },
@@ -53,7 +53,7 @@
             "name": "Android (development)",
             "request": "launch",
             "type": "dart",
-            "program": "soundnet_app/lib/development.dart",
+            "program": "groots_app/lib/development.dart",
             "flutterMode": "debug",
             "deviceId": "android"
         },
@@ -61,7 +61,7 @@
             "name": "Android (production)",
             "request": "launch",
             "type": "dart",
-            "program": "soundnet_app/lib/production.dart",
+            "program": "groots_app/lib/production.dart",
             "flutterMode": "release",
             "deviceId": "android"
         }

@@ -5,6 +5,7 @@ class RegisterRequest(BaseModel):
     username: str
     email: EmailStr
     password: str
+    role_id: str
 
 
 class LoginRequest(BaseModel):
@@ -23,4 +24,5 @@ class UserResponse(BaseModel):
     email: str
     storage_quota_bytes: int
     used_storage_bytes: int
+    role: str
     is_admin: bool = False

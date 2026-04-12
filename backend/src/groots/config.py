@@ -2,6 +2,7 @@ from functools import lru_cache
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import List
 
 
 class Settings(BaseSettings):
@@ -21,11 +22,35 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
 
+    # API scopes
+    USER_READ: str = "user:read"
+    USER_WRITE: str = "user:write"
+    LIBRARY_READ: str = "library:read"
+    LIBRARY_WRITE: str = "library:write"
+    LIBRARY_ADMIN: str = "library:admin"
+    ALBUM_READ: str = "album:read"
+    ALBUM_WRITE: str = "album:write"
+    PLAYLIST_READ: str = "playlist:read"
+    PLAYLIST_WRITE: str = "playlist:write"
+    GENRE_READ: str = "genre:read"
+    API_SCOPES: List[str] = [
+        USER_READ,
+        USER_WRITE,
+        LIBRARY_READ,
+        LIBRARY_WRITE,
+        LIBRARY_ADMIN,
+        ALBUM_READ,
+        ALBUM_WRITE,
+        PLAYLIST_READ,
+        PLAYLIST_WRITE,
+        GENRE_READ,
+    ]
+
     # MongoDB
     MONGO_SERVER: str = "localhost"
     MONGO_PORT: int = 27017
     MONGO_USER: str = "groots"
-    MONGO_PASSWORD: str = "groots"
+    MONGO_PASSWORD: str = "password"
     MONGO_AUTH_DB: str = "admin"
     MONGO_DB: str = "groots"
     MONGO_DB_URI: str = ""
@@ -49,9 +74,11 @@ class Settings(BaseSettings):
     def admin_email_set(self) -> set[str]:
         return {e.strip().lower() for e in self.ADMIN_EMAILS.split(",") if e.strip()}
 
-    # IPFS / Kubo
+    # IPFS / Cluster proxy
+    # In dev, IPFS_API_HOST/PORT should point to the ipfs-cluster proxy (9095),
+    # not directly to Kubo (5001). The proxy is Kubo-API-compatible.
     IPFS_API_HOST: str = "localhost"
-    IPFS_API_PORT: int = 5001
+    IPFS_API_PORT: int = 9095
     IPFS_GATEWAY_HOST: str = "localhost"
     IPFS_GATEWAY_PORT: int = 8080
 

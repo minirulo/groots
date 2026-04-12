@@ -26,6 +26,9 @@ async def get_user_profile(user_id: str, uow: AbstractUnitOfWork) -> dict | None
         user = await uow.users.get(user_id)
         if not user:
             return None
+        role = await uow.roles.get(user.role_id)
+        if not role:
+            return None
         return {
             "id": user.id,
             "username": user.username,
@@ -34,6 +37,7 @@ async def get_user_profile(user_id: str, uow: AbstractUnitOfWork) -> dict | None
             "used_storage_bytes": user.used_storage_bytes,
             "is_admin": user.is_admin,
             "created_at": user.created_at,
+            "role": role.name,
         }
 
 

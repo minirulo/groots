@@ -1,12 +1,20 @@
 from typing import Annotated
 
 from dependency_injector.wiring import Provide, inject
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    UploadFile,
+    status,
+    Security,
+)
 
 from groots.domain.commands import AddTrack, PinTrack, RemoveTrack, UploadTrack
 from groots.domain.errors import SoundNetError
 from groots.entrypoints.api import views
-from groots.entrypoints.api.auth import get_current_user
+from groots.entrypoints.api.auth import get_current_oauth_user
 from groots.entrypoints.api.container import Container
 from groots.entrypoints.api.routes.schemas.track import (
     AddTrackRequest,
@@ -16,15 +24,20 @@ from groots.entrypoints.api.routes.schemas.track import (
 from groots.service_layer.errors import to_http_exception
 from groots.service_layer.messagebus import MessageBus
 from groots.service_layer.unit_of_work import AbstractUnitOfWork
+from groots.config import settings
 
 router = APIRouter(prefix="/library", tags=["library"])
 
 
-@router.get("", response_model=list[TrackResponse])
+@router.get(
+    "",
+)
 @inject
 async def list_tracks(
-    current_user: dict = Depends(get_current_user),
-    uow: AbstractUnitOfWork = Depends(Provide[Container.uow]),
+    current_user: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.LIBRARY_READ])
+    ],
+    uow: Annotated[AbstractUnitOfWork, Depends(Provide[Container.uow])],
 ) -> list[TrackResponse]:
     tracks = await views.get_user_library(current_user["user_id"], uow)
     return [TrackResponse(**t) for t in tracks]
@@ -34,8 +47,10 @@ async def list_tracks(
 @inject
 async def add_track(
     body: AddTrackRequest,
-    current_user: dict = Depends(get_current_user),
-    bus: MessageBus = Depends(Provide[Container.messagebus]),
+    current_user: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.LIBRARY_WRITE])
+    ],
+    bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> dict:
     try:
         return await bus.handle(
@@ -62,8 +77,10 @@ async def add_track(
 @inject
 async def remove_track(
     track_id: str,
-    current_user: dict = Depends(get_current_user),
-    bus: MessageBus = Depends(Provide[Container.messagebus]),
+    current_user: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.LIBRARY_WRITE])
+    ],
+    bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> None:
     try:
         await bus.handle(
@@ -77,9 +94,11 @@ async def remove_track(
 @inject
 async def pin_track(
     track_id: str,
-    current_user: dict = Depends(get_current_user),
-    bus: MessageBus = Depends(Provide[Container.messagebus]),
-    uow: AbstractUnitOfWork = Depends(Provide[Container.uow]),
+    current_user: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.LIBRARY_WRITE])
+    ],
+    bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
+    uow: Annotated[AbstractUnitOfWork, Depends(Provide[Container.uow])],
 ) -> dict:
     track = await views.get_track(track_id, current_user["user_id"], uow)
     if not track:
@@ -103,8 +122,10 @@ async def pin_track(
 @inject
 async def get_stream_url(
     track_id: str,
-    current_user: dict = Depends(get_current_user),
-    uow: AbstractUnitOfWork = Depends(Provide[Container.uow]),
+    current_user: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.LIBRARY_WRITE])
+    ],
+    uow: Annotated[AbstractUnitOfWork, Depends(Provide[Container.uow])],
 ) -> StreamUrlResponse:
     """
     Returns the IPFS gateway URL for streaming this track.
@@ -136,7 +157,9 @@ async def get_stream_url(
 @inject
 async def upload_track(
     file: Annotated[UploadFile, File()],
-    current_user: Annotated[dict, Depends(get_current_user)],
+    current_user: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.LIBRARY_WRITE])
+    ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> dict:
     """

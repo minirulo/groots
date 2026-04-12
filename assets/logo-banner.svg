@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 120" width="520" height="120">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#16213e;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="rootsGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4ecca3;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2ecc71;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="520" height="120" rx="12" fill="url(#bgGrad)" />
+
+  <!-- Icon group (left side) -->
+  <!-- Trunk -->
+  <line x1="60" y1="92" x2="60" y2="58" stroke="url(#rootsGrad)" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- Roots -->
+  <path d="M60 82 Q47 88 38 95" stroke="#4ecca3" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.8"/>
+  <path d="M60 82 Q73 88 82 95" stroke="#4ecca3" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.8"/>
+  <path d="M60 87 Q53 96 49 106" stroke="#4ecca3" stroke-width="1.4" fill="none" stroke-linecap="round" opacity="0.5"/>
+  <path d="M60 87 Q67 96 71 106" stroke="#4ecca3" stroke-width="1.4" fill="none" stroke-linecap="round" opacity="0.5"/>
+
+  <!-- Center node -->
+  <circle cx="60" cy="56" r="4" fill="#4ecca3" />
+
+  <!-- Sound waves up -->
+  <path d="M47 56 Q53 42 60 38 Q67 42 73 56" stroke="#4ecca3" stroke-width="2.2" fill="none" stroke-linecap="round" opacity="0.9"/>
+  <path d="M37 56 Q48 32 60 27 Q72 32 83 56" stroke="#4ecca3" stroke-width="1.7" fill="none" stroke-linecap="round" opacity="0.6"/>
+  <path d="M27 56 Q43 22 60 16 Q77 22 93 56" stroke="#4ecca3" stroke-width="1.2" fill="none" stroke-linecap="round" opacity="0.3"/>
+
+  <!-- Ground line -->
+  <line x1="30" y1="95" x2="90" y2="95" stroke="#4ecca3" stroke-width="1" opacity="0.2"/>
+
+  <!-- Wordmark -->
+  <!-- "groots" text -->
+  <text x="118" y="73"
+        font-family="'SF Pro Display', 'Helvetica Neue', Arial, sans-serif"
+        font-size="46"
+        font-weight="700"
+        letter-spacing="-1"
+        fill="#ffffff">
+    groots
+  </text>
+
+  <!-- Tagline -->
+  <text x="120" y="93"
+        font-family="'SF Pro Text', 'Helvetica Neue', Arial, sans-serif"
+        font-size="12"
+        font-weight="400"
+        letter-spacing="3"
+        fill="#4ecca3"
+        opacity="0.85">
+    YOUR MUSIC. YOUR NETWORK.
+  </text>
+</svg>

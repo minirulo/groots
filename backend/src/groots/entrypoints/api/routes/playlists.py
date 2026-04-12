@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from dependency_injector.wiring import Provide, inject
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Security
 
 from groots.domain.commands import (
     AddTrackToPlaylist,
@@ -12,7 +12,7 @@ from groots.domain.commands import (
 )
 from groots.domain.errors import SoundNetError
 from groots.entrypoints.api import views
-from groots.entrypoints.api.auth import get_current_user
+from groots.entrypoints.api.auth import get_current_oauth_user
 from groots.entrypoints.api.container import Container
 from groots.entrypoints.api.routes.schemas.playlist import (
     AddTrackToPlaylistRequest,
@@ -23,6 +23,7 @@ from groots.entrypoints.api.routes.schemas.playlist import (
 from groots.service_layer.errors import to_http_exception
 from groots.service_layer.messagebus import MessageBus
 from groots.service_layer.unit_of_work import AbstractUnitOfWork
+from groots.config import settings
 
 router = APIRouter(prefix="/playlists", tags=["playlists"])
 
@@ -30,7 +31,9 @@ router = APIRouter(prefix="/playlists", tags=["playlists"])
 @router.get("")
 @inject
 async def list_playlists(
-    current_user: Annotated[dict, Depends(get_current_user)],
+    current_user: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.PLAYLIST_READ])
+    ],
     uow: Annotated[AbstractUnitOfWork, Depends(Provide[Container.uow])],
 ) -> list[PlaylistResponse]:
     playlists = await views.get_user_playlists(current_user["user_id"], uow)
@@ -41,7 +44,9 @@ async def list_playlists(
 @inject
 async def create_playlist(
     body: CreatePlaylistRequest,
-    current_user: Annotated[dict, Depends(get_current_user)],
+    current_user: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.PLAYLIST_WRITE])
+    ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> dict:
     try:
@@ -56,7 +61,9 @@ async def create_playlist(
 @inject
 async def get_playlist(
     playlist_id: str,
-    current_user: Annotated[dict, Depends(get_current_user)],
+    current_user: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.PLAYLIST_READ])
+    ],
     uow: Annotated[AbstractUnitOfWork, Depends(Provide[Container.uow])],
 ) -> PlaylistResponse:
     playlist = await views.get_playlist(playlist_id, current_user["user_id"], uow)
@@ -72,7 +79,9 @@ async def get_playlist(
 async def rename_playlist(
     playlist_id: str,
     body: RenamePlaylistRequest,
-    current_user: Annotated[dict, Depends(get_current_user)],
+    current_user: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.PLAYLIST_WRITE])
+    ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> dict:
     try:
@@ -92,7 +101,9 @@ async def rename_playlist(
 @inject
 async def delete_playlist(
     playlist_id: str,
-    current_user: Annotated[dict, Depends(get_current_user)],
+    current_user: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.PLAYLIST_WRITE])
+    ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> None:
     try:
@@ -108,7 +119,9 @@ async def delete_playlist(
 async def add_track(
     playlist_id: str,
     body: AddTrackToPlaylistRequest,
-    current_user: Annotated[dict, Depends(get_current_user)],
+    current_user: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.PLAYLIST_WRITE])
+    ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> dict:
     try:
@@ -129,7 +142,9 @@ async def add_track(
 async def remove_track(
     playlist_id: str,
     track_id: str,
-    current_user: Annotated[dict, Depends(get_current_user)],
+    current_user: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.PLAYLIST_WRITE])
+    ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> dict:
     try:

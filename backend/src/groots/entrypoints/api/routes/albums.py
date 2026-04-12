@@ -1,7 +1,16 @@
 from typing import Annotated
 
 from dependency_injector.wiring import Provide, inject
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+    Security,
+)
 
 from groots.domain.commands import (
     AssignTrackToAlbum,
@@ -13,7 +22,7 @@ from groots.domain.commands import (
 )
 from groots.domain.errors import SoundNetError
 from groots.entrypoints.api import views
-from groots.entrypoints.api.auth import get_current_user
+from groots.entrypoints.api.auth import get_current_oauth_user
 from groots.entrypoints.api.container import Container
 from groots.entrypoints.api.routes.schemas.album import (
     AlbumResponse,
@@ -24,6 +33,7 @@ from groots.entrypoints.api.routes.schemas.album import (
 from groots.service_layer.errors import to_http_exception
 from groots.service_layer.messagebus import MessageBus
 from groots.service_layer.unit_of_work import AbstractUnitOfWork
+from groots.config import settings
 
 router = APIRouter(prefix="/albums", tags=["albums"])
 
@@ -31,7 +41,9 @@ router = APIRouter(prefix="/albums", tags=["albums"])
 @router.get("")
 @inject
 async def list_albums(
-    current_user: Annotated[dict, Depends(get_current_user)],
+    current_user: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.ALBUM_READ])
+    ],
     uow: Annotated[AbstractUnitOfWork, Depends(Provide[Container.uow])],
 ) -> list[AlbumResponse]:
     """Return albums that the current user has tracks in."""
@@ -42,7 +54,7 @@ async def list_albums(
 @router.get("/catalogue")
 @inject
 async def get_catalogue(
-    current_user: Annotated[dict, Depends(get_current_user)],
+    _: Annotated[dict, Security(get_current_oauth_user, scopes=[settings.ALBUM_READ])],
     uow: Annotated[AbstractUnitOfWork, Depends(Provide[Container.uow])],
 ) -> list[AlbumResponse]:
     """Return the global album catalogue (all albums, for browsing and sync matching)."""
@@ -54,7 +66,7 @@ async def get_catalogue(
 @inject
 async def search_albums(
     q: Annotated[str, Query(min_length=1)],
-    current_user: Annotated[dict, Depends(get_current_user)],
+    _: Annotated[dict, Security(get_current_oauth_user, scopes=[settings.ALBUM_READ])],
     uow: Annotated[AbstractUnitOfWork, Depends(Provide[Container.uow])],
 ) -> list[AlbumResponse]:
     """Search the global album catalogue by title or artist."""
@@ -66,7 +78,9 @@ async def search_albums(
 @inject
 async def create_album(
     body: CreateAlbumRequest,
-    current_user: Annotated[dict, Depends(get_current_user)],
+    current_user: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.ALBUM_WRITE])
+    ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> dict:
     try:
@@ -89,7 +103,7 @@ async def create_album(
 @inject
 async def get_album(
     album_id: str,
-    current_user: Annotated[dict, Depends(get_current_user)],
+    _: Annotated[dict, Security(get_current_oauth_user, scopes=[settings.ALBUM_READ])],
     uow: Annotated[AbstractUnitOfWork, Depends(Provide[Container.uow])],
 ) -> AlbumResponse:
     album = await views.get_album(album_id, uow)
@@ -105,7 +119,9 @@ async def get_album(
 async def update_album(
     album_id: str,
     body: UpdateAlbumRequest,
-    current_user: Annotated[dict, Depends(get_current_user)],
+    current_user: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.ALBUM_WRITE])
+    ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> dict:
     try:
@@ -129,7 +145,9 @@ async def update_album(
 @inject
 async def delete_album(
     album_id: str,
-    current_user: Annotated[dict, Depends(get_current_user)],
+    current_user: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.ALBUM_WRITE])
+    ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> None:
     try:
@@ -149,7 +167,9 @@ async def delete_album(
 async def upload_cover(
     album_id: str,
     file: Annotated[UploadFile, File()],
-    current_user: Annotated[dict, Depends(get_current_user)],
+    current_user: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.ALBUM_WRITE])
+    ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> dict:
     content = await file.read()
@@ -172,7 +192,9 @@ async def upload_cover(
 async def assign_track(
     album_id: str,
     body: AssignTrackRequest,
-    current_user: Annotated[dict, Depends(get_current_user)],
+    current_user: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.ALBUM_WRITE])
+    ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> dict:
     try:
@@ -194,7 +216,9 @@ async def assign_track(
 async def unassign_track(
     album_id: str,
     track_id: str,
-    current_user: Annotated[dict, Depends(get_current_user)],
+    current_user: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.ALBUM_WRITE])
+    ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> dict:
     try:
