@@ -84,7 +84,7 @@ class Settings(BaseSettings):
 
     # Direct Kubo RPC — used for operations the cluster proxy doesn't handle
     # (e.g. /api/v0/id). Defaults to same host as IPFS_API but on port 5001.
-    IPFS_KUBO_HOST: str = ""
+    IPFS_KUBO_HOST: str = "localhost"
     IPFS_KUBO_PORT: int = 5001
 
     @property
