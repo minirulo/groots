@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- XPC services must have explicit app-sandbox = true to pass App Store
+	     static validation. "inherit" alone is rejected by the validator even
+	     though it is valid at runtime. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!-- kubo daemon opens outbound connections to IPFS peers -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<!-- kubo daemon listens on API / gateway / swarm ports -->
+	<key>com.apple.security.network.server</key>
+	<true/>
+</dict>
+</plist>

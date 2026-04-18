@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Explicit sandbox required by App Store validator. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!-- Allow Xcode debugger to attach to the XPC service process. -->
+	<key>com.apple.security.get-task-allow</key>
+	<true/>
+	<!-- kubo daemon network access. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.network.server</key>
+	<true/>
+</dict>
+</plist>

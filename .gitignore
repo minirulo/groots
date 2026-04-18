@@ -15,6 +15,7 @@ downloads/
 eggs/
 .eggs/
 lib/
+!groots_app/lib/
 lib64/
 parts/
 sdist/
