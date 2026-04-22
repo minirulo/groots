@@ -1,58 +1,58 @@
-class SoundNetError(Exception):
+class GrootException(Exception):
     pass
 
 
-class UserAlreadyExists(SoundNetError):
+class UserAlreadyExists(GrootException):
     pass
 
 
-class UserNotFound(SoundNetError):
+class UserNotFound(GrootException):
     pass
 
 
-class RoleNotFound(SoundNetError):
+class RoleNotFound(GrootException):
     pass
 
 
-class InvalidCredentials(SoundNetError):
+class InvalidCredentials(GrootException):
     pass
 
 
-class TrackNotFound(SoundNetError):
+class TrackNotFound(GrootException):
     pass
 
 
-class TrackNotOwnedByUser(SoundNetError):
+class TrackNotOwnedByUser(GrootException):
     pass
 
 
-class StorageQuotaExceeded(SoundNetError):
+class StorageQuotaExceeded(GrootException):
     pass
 
 
-class IPFSError(SoundNetError):
+class IPFSError(GrootException):
     pass
 
 
-class AlbumNotFound(SoundNetError):
+class AlbumNotFound(GrootException):
     pass
 
 
-class AlbumNotOwnedByUser(SoundNetError):
+class AlbumNotOwnedByUser(GrootException):
     pass
 
 
-class PlaylistNotFound(SoundNetError):
+class PlaylistNotFound(GrootException):
     pass
 
 
-class PlaylistNotOwnedByUser(SoundNetError):
+class PlaylistNotOwnedByUser(GrootException):
     pass
 
 
-class FingerprintError(SoundNetError):
+class FingerprintError(GrootException):
     pass
 
 
-class AdminRequired(SoundNetError):
+class AdminRequired(GrootException):
     pass

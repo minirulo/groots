@@ -4,7 +4,7 @@ from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends, File, UploadFile, Security
 
 from groots.domain.commands import IngestCentralTrack
-from groots.domain.errors import SoundNetError
+from groots.domain.errors import GrootException
 from groots.entrypoints.api.auth import get_current_oauth_user
 from groots.entrypoints.api.container import Container
 from groots.entrypoints.api import views
@@ -41,7 +41,7 @@ async def ingest_central_track(
                 mime_type=file.content_type or "audio/mpeg",
             )
         )
-    except SoundNetError as e:
+    except GrootException as e:
         raise to_http_exception(e)
 
 
