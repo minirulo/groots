@@ -34,15 +34,18 @@ class LibraryProvider {
 
   /// Mobile upload: sends raw bytes as multipart to POST /library/upload.
   /// The server handles ipfs add + pin + register in one call.
+  /// Optional [source] declares the music origin (e.g. "cd", "vinyl").
   Future<Map<String, dynamic>> uploadTrack({
     required Uint8List bytes,
     required String filename,
     required String mimeType,
+    String? source,
   }) async {
     final token = await _storage.getToken();
     final req = http.MultipartRequest('POST', Uri.parse('$_base/library/upload'));
     if (token != null) req.headers['Authorization'] = 'Bearer $token';
     req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
+    if (source != null) req.fields['source'] = source;
     final streamed = await req.send();
     final body = await streamed.stream.bytesToString();
     if (streamed.statusCode != 201) throw Exception(body);

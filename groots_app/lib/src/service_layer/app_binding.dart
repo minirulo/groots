@@ -5,6 +5,7 @@ import '../adapters/interceptor.dart';
 import '../adapters/providers/admin_provider.dart';
 import '../adapters/providers/album_provider.dart';
 import '../adapters/providers/auth_provider.dart';
+import '../adapters/providers/discogs_provider.dart';
 import '../adapters/providers/library_provider.dart';
 import '../adapters/providers/playlist_provider.dart';
 import '../adapters/storage.dart';
@@ -39,11 +40,13 @@ class AppBinding extends Bindings {
     final albumProvider = AlbumProvider(client);
     final playlistProvider = PlaylistProvider(client);
     final adminProvider = AdminProvider(client);
+    final discogsProvider = DiscogsProvider(client);
     Get.put(authProvider);
     Get.put(libraryProvider);
     Get.put(albumProvider);
     Get.put(playlistProvider);
     Get.put(adminProvider);
+    Get.put(discogsProvider);
 
     final bus = Messagebus(
       authHandler: AuthHandler(provider: authProvider, storage: storage),

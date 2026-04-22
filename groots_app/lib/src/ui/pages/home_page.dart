@@ -18,7 +18,6 @@ import 'package:modal_bottom_sheet/modal_bottom_sheet.dart';
 import '../views/admin_view.dart';
 import '../views/albums_view.dart';
 import '../views/genres_view.dart';
-import '../views/mobile_upload_view.dart';
 import '../views/playlists_view.dart';
 import '../views/sync_view.dart';
 import '../widgets/ipfs_status_indicator.dart';
@@ -48,16 +47,6 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Widget get _uploadTab {
-    switch (Theme.of(context).platform) {
-      case TargetPlatform.iOS:
-      case TargetPlatform.android:
-        return const MobileUploadView();
-      default:
-        return const SyncView();
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final authState = context.watch<AuthenticationBloc>().state;
@@ -72,7 +61,7 @@ class _HomePageState extends State<HomePage> {
       const AlbumsView(),
       const GenresView(),
       const PlaylistsView(),
-      _uploadTab,
+      if (!isMobile) const SyncView(),
       if (isAdmin) const AdminView(),
     ];
 
@@ -89,7 +78,6 @@ class _HomePageState extends State<HomePage> {
         icon: Icon(Icons.queue_music),
         label: 'Playlists',
       ),
-      const NavigationDestination(icon: Icon(Icons.upload), label: 'Upload'),
       if (isAdmin)
         const NavigationDestination(
           icon: Icon(Icons.admin_panel_settings),

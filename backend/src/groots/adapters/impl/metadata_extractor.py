@@ -2,7 +2,7 @@ import io
 
 
 class AudioMetadata:
-    __slots__ = ("title", "artist", "album", "year", "genre", "track_number")
+    __slots__ = ("title", "artist", "album", "year", "genre", "track_number", "isrc", "mcn", "encoder")
 
     def __init__(
         self,
@@ -12,6 +12,9 @@ class AudioMetadata:
         year: int | None = None,
         genre: str | None = None,
         track_number: int | None = None,
+        isrc: str | None = None,
+        mcn: str | None = None,
+        encoder: str | None = None,
     ):
         self.title = title
         self.artist = artist
@@ -19,6 +22,9 @@ class AudioMetadata:
         self.year = year
         self.genre = genre
         self.track_number = track_number
+        self.isrc = isrc
+        self.mcn = mcn
+        self.encoder = encoder
 
 
 class MetadataExtractor:
@@ -54,7 +60,12 @@ class MetadataExtractor:
 
         def _get(*keys: str) -> str | None:
             for k in keys:
-                v = _first(tags.get(k))
+                try:
+                    v = _first(tags.get(k))
+                except (ValueError, KeyError):
+                    # VorbisComment.get() raises ValueError for keys that
+                    # contain characters invalid in the Vorbis spec (e.g. ©nam)
+                    v = None
                 if v:
                     return v
             return None
@@ -83,6 +94,19 @@ class MetadataExtractor:
         genre = _get("TCON", "genre", "\xa9gen")
         track_number = _tracknum(_get("TRCK", "tracknumber", "trkn"))
 
+        # CD provenance signals
+        # ISRC: TSRC frame (ID3/MP3), ISRC comment (Vorbis/FLAC)
+        isrc = _get("TSRC", "ISRC", "isrc")
+
+        # MCN / barcode: stored as custom TXXX frames in ID3, or Vorbis comments
+        mcn = _get(
+            "TXXX:MCN", "TXXX:BARCODE", "TXXX:CATALOGNUMBER",
+            "MCN", "BARCODE", "CATALOGNUMBER",
+        )
+
+        # Encoder / ripper tool: TENC (ID3), encoded-by (Vorbis), ©too (MP4)
+        encoder = _get("TENC", "encoded-by", "\xa9too")
+
         return AudioMetadata(
             title=title,
             artist=artist,
@@ -90,4 +114,7 @@ class MetadataExtractor:
             year=year,
             genre=genre,
             track_number=track_number,
+            isrc=isrc,
+            mcn=mcn,
+            encoder=encoder,
         )

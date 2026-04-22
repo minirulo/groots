@@ -38,7 +38,6 @@
 		E1C6D229B507613E0D68E0B1 /* Pods_KuboHelper.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 55A5BF04026F6287087E88A6 /* Pods_KuboHelper.framework */; };
 		E74AB4A30D116AD53340C4E3 /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3C7C7BB47080FCEE061E9A65 /* Pods_Runner.framework */; };
 		FFD3AB9CCA58B9F6905BAF41 /* ipfs in Resources */ = {isa = PBXBuildFile; fileRef = A33C2909529C66D32E522285 /* ipfs */; };
-		F1A2B3C4D5E6F7A8B9C0D1E2 /* KuboHelper in Embed XPC Services */ = {isa = PBXBuildFile; fileRef = D612897DF515A9A5EA2B370F /* KuboHelper */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -76,31 +75,13 @@
 			name = "Bundle Framework";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		A0DA62B24B95FE3753308901 /* Embed XPC Services */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Embed XPC Services";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "set -e\nXPC_DIR=\"${CODESIGNING_FOLDER_PATH}/Contents/XPCServices\"\nmkdir -p \"${XPC_DIR}\"\n\n# Resolve the source — BUILT_PRODUCTS_DIR/KuboHelper.xpc is a relative symlink\n# during archive (SKIP_INSTALL=YES). Use readlink to get the real path.\nSRC_LINK=\"${BUILT_PRODUCTS_DIR}/KuboHelper.xpc\"\nif [ -L \"${SRC_LINK}\" ]; then\n  SRC=$(readlink -f \"${SRC_LINK}\" 2>/dev/null || python3 -c \"import os,sys; print(os.path.realpath(sys.argv[1]))\" \"${SRC_LINK}\")\nelse\n  SRC=\"${SRC_LINK}\"\nfi\n\nif [ ! -d \"${SRC}\" ]; then\n  echo \"warning: KuboHelper.xpc not found at ${SRC} (resolved from ${SRC_LINK})\"\n  exit 0\nfi\n\nrm -rf \"${XPC_DIR}/KuboHelper.xpc\"\n# ditto preserves bundle structure and follows symlinks in the source\n/usr/bin/ditto \"${SRC}\" \"${XPC_DIR}/KuboHelper.xpc\"\n\n# Choose entitlements for KuboHelper and ipfs based on build configuration.\nif [ \"${CONFIGURATION}\" = \"Debug\" ]; then\n  ENTITLEMENTS=\"${SRCROOT}/KuboHelper/KuboHelper-Debug.entitlements\"\nelse\n  ENTITLEMENTS=\"${SRCROOT}/KuboHelper/KuboHelper-Release.entitlements\"\nfi\nIPFS_ENTITLEMENTS=\"${SRCROOT}/KuboHelper/ipfs.entitlements\"\n\n# Re-sign the bundled ipfs binary. Do NOT pass --options runtime here:\n# ipfs runs as a child of KuboHelper and inherits its sandbox. Enabling\n# Hardened Runtime + app-sandbox on a non-bundle executable causes macOS\n# to SIGTRAP it before it can write a single byte (no valid container ID).\nIPFS_BIN=\"${XPC_DIR}/KuboHelper.xpc/Contents/Resources/ipfs\"\nif [ -f \"${IPFS_BIN}\" ]; then\n  codesign --force \\\n    --sign \"${EXPANDED_CODE_SIGN_IDENTITY}\" \\\n    --entitlements \"${IPFS_ENTITLEMENTS}\" \\\n    \"${IPFS_BIN}\"\nfi\n\n# Sign the XPC service binary, then the bundle.\ncodesign --force --options runtime \\\n  --sign \"${EXPANDED_CODE_SIGN_IDENTITY}\" \\\n  --entitlements \"${ENTITLEMENTS}\" \\\n  \"${XPC_DIR}/KuboHelper.xpc/Contents/MacOS/KuboHelper\"\n\ncodesign --force --options runtime \\\n  --sign \"${EXPANDED_CODE_SIGN_IDENTITY}\" \\\n  --entitlements \"${ENTITLEMENTS}\" \\\n  \"${XPC_DIR}/KuboHelper.xpc\"\n\necho \"Embedded and re-signed KuboHelper.xpc (with ipfs) into ${XPC_DIR}\"\n";
-		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		0BDF449EAF88DB14932AA7B9 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
-		1370B46BC3162CD0680533AF /* KuboHelper */ = {isa = PBXFileReference; includeInIndex = 0; path = KuboHelper; sourceTree = BUILT_PRODUCTS_DIR; };
+		1370B46BC3162CD0680533AF /* KuboHelper */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text; path = KuboHelper; sourceTree = BUILT_PRODUCTS_DIR; };
 		2782F7812127CAF86B26B3C4 /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
-		29C3C97B62288D44DACB5F5C /* KuboHelper */ = {isa = PBXFileReference; includeInIndex = 0; path = KuboHelper; sourceTree = BUILT_PRODUCTS_DIR; };
+		29C3C97B62288D44DACB5F5C /* KuboHelper */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text; path = KuboHelper; sourceTree = BUILT_PRODUCTS_DIR; };
 		331C80D5294CF71000263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		331C80D7294CF71000263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		333000ED22D3DE5D00554162 /* Warnings.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Warnings.xcconfig; sourceTree = "<group>"; };
@@ -134,14 +115,14 @@
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		99BE303AB11471AAEB069EB1 /* KuboHelper.xpc */ = {isa = PBXFileReference; explicitFileType = "wrapper.xpc-service"; includeInIndex = 0; path = KuboHelper.xpc; sourceTree = BUILT_PRODUCTS_DIR; };
 		9EF2B9D5D6F1CDAA90B28607 /* Pods-RunnerTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.profile.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.profile.xcconfig"; sourceTree = "<group>"; };
-		A33C2909529C66D32E522285 /* ipfs */ = {isa = PBXFileReference; includeInIndex = 1; path = ipfs; sourceTree = "<group>"; };
+		A33C2909529C66D32E522285 /* ipfs */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "compiled.mach-o.executable"; path = ipfs; sourceTree = "<group>"; };
 		AE29500519398A841C4CFF02 /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
 		AFC775F3BD02301FCBC8CC1F /* Pods-KuboHelper.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-KuboHelper.release.xcconfig"; path = "Target Support Files/Pods-KuboHelper/Pods-KuboHelper.release.xcconfig"; sourceTree = "<group>"; };
 		B38F6D32C63DECB91FFA57B7 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D04762085E16A61D45A4699F /* KuboHelperProtocol.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KuboHelperProtocol.swift; sourceTree = "<group>"; };
 		D612897DF515A9A5EA2B370F /* KuboHelper.xpc */ = {isa = PBXFileReference; explicitFileType = "wrapper.xpc-service"; includeInIndex = 0; path = KuboHelper.xpc; sourceTree = BUILT_PRODUCTS_DIR; };
 		E4C40CD619C48D0DE7F347CF /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
-		F13B218EB43B460F096E9B3B /* KuboHelper */ = {isa = PBXFileReference; includeInIndex = 0; path = KuboHelper; sourceTree = BUILT_PRODUCTS_DIR; };
+		F13B218EB43B460F096E9B3B /* KuboHelper */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text; path = KuboHelper; sourceTree = BUILT_PRODUCTS_DIR; };
 		FBDD4436510D480735C47645 /* KuboHelperProtocol.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KuboHelperProtocol.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -217,7 +198,7 @@
 				1370B46BC3162CD0680533AF /* KuboHelper */,
 				F13B218EB43B460F096E9B3B /* KuboHelper */,
 				29C3C97B62288D44DACB5F5C /* KuboHelper */,
-				D612897DF515A9A5EA2B370F /* KuboHelper */,
+				D612897DF515A9A5EA2B370F /* KuboHelper.xpc */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -269,7 +250,6 @@
 				B38F6D32C63DECB91FFA57B7 /* Info.plist */,
 				A33C2909529C66D32E522285 /* ipfs */,
 			);
-			name = KuboHelper;
 			path = KuboHelper;
 			sourceTree = "<group>";
 		};
@@ -369,7 +349,7 @@
 			);
 			name = KuboHelper;
 			productName = KuboHelper;
-			productReference = D612897DF515A9A5EA2B370F /* KuboHelper */;
+			productReference = D612897DF515A9A5EA2B370F /* KuboHelper.xpc */;
 			productType = "com.apple.product-type.xpc-service";
 		};
 /* End PBXNativeTarget section */
@@ -571,6 +551,24 @@
 			shellPath = /bin/sh;
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
+		};
+		A0DA62B24B95FE3753308901 /* Embed XPC Services */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Embed XPC Services";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nXPC_DIR=\"${CODESIGNING_FOLDER_PATH}/Contents/XPCServices\"\nmkdir -p \"${XPC_DIR}\"\n\n# Resolve the source — BUILT_PRODUCTS_DIR/KuboHelper.xpc is a relative symlink\n# during archive (SKIP_INSTALL=YES). Use readlink to get the real path.\nSRC_LINK=\"${BUILT_PRODUCTS_DIR}/KuboHelper.xpc\"\nif [ -L \"${SRC_LINK}\" ]; then\n  SRC=$(readlink -f \"${SRC_LINK}\" 2>/dev/null || python3 -c \"import os,sys; print(os.path.realpath(sys.argv[1]))\" \"${SRC_LINK}\")\nelse\n  SRC=\"${SRC_LINK}\"\nfi\n\nif [ ! -d \"${SRC}\" ]; then\n  echo \"warning: KuboHelper.xpc not found at ${SRC} (resolved from ${SRC_LINK})\"\n  exit 0\nfi\n\nrm -rf \"${XPC_DIR}/KuboHelper.xpc\"\n# ditto preserves bundle structure and follows symlinks in the source\n/usr/bin/ditto \"${SRC}\" \"${XPC_DIR}/KuboHelper.xpc\"\n\n# Choose entitlements for KuboHelper and ipfs based on build configuration.\nif [ \"${CONFIGURATION}\" = \"Debug\" ]; then\n  ENTITLEMENTS=\"${SRCROOT}/KuboHelper/KuboHelper-Debug.entitlements\"\nelse\n  ENTITLEMENTS=\"${SRCROOT}/KuboHelper/KuboHelper-Release.entitlements\"\nfi\nIPFS_ENTITLEMENTS=\"${SRCROOT}/KuboHelper/ipfs.entitlements\"\n\n# Re-sign the bundled ipfs binary. Do NOT pass --options runtime here:\n# ipfs runs as a child of KuboHelper and inherits its sandbox. Enabling\n# Hardened Runtime + app-sandbox on a non-bundle executable causes macOS\n# to SIGTRAP it before it can write a single byte (no valid container ID).\nIPFS_BIN=\"${XPC_DIR}/KuboHelper.xpc/Contents/Resources/ipfs\"\nif [ -f \"${IPFS_BIN}\" ]; then\n  codesign --force \\\n    --sign \"${EXPANDED_CODE_SIGN_IDENTITY}\" \\\n    --entitlements \"${IPFS_ENTITLEMENTS}\" \\\n    \"${IPFS_BIN}\"\nfi\n\n# Sign the XPC service binary, then the bundle.\ncodesign --force --options runtime \\\n  --sign \"${EXPANDED_CODE_SIGN_IDENTITY}\" \\\n  --entitlements \"${ENTITLEMENTS}\" \\\n  \"${XPC_DIR}/KuboHelper.xpc/Contents/MacOS/KuboHelper\"\n\ncodesign --force --options runtime \\\n  --sign \"${EXPANDED_CODE_SIGN_IDENTITY}\" \\\n  --entitlements \"${ENTITLEMENTS}\" \\\n  \"${XPC_DIR}/KuboHelper.xpc\"\n\necho \"Embedded and re-signed KuboHelper.xpc (with ipfs) into ${XPC_DIR}\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

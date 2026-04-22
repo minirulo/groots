@@ -1,0 +1,1128 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:just_audio/just_audio.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
+
+import '../../adapters/providers/album_provider.dart';
+import '../../adapters/providers/discogs_provider.dart';
+import '../../adapters/providers/library_provider.dart';
+import '../../domain/models/discogs.dart';
+import '../widgets/waveform_editor.dart';
+
+enum _VinylStep { discogs, record, edit }
+
+class VinylSyncView extends StatefulWidget {
+  const VinylSyncView({super.key});
+
+  @override
+  State<VinylSyncView> createState() => _VinylSyncViewState();
+}
+
+class _VinylSyncViewState extends State<VinylSyncView>
+    with SingleTickerProviderStateMixin {
+  _VinylStep _step = _VinylStep.discogs;
+
+  // ── Discogs ───────────────────────────────────────────────────────────────────
+  late final TabController _tabCtrl;
+  final _barcodeCtrl = TextEditingController();
+  final _artistCtrl = TextEditingController();
+  final _albumCtrl = TextEditingController();
+  final _freeCtrl = TextEditingController();
+  bool _searching = false;
+  List<DiscogsReleaseSummary> _results = [];
+  String? _searchError;
+  DiscogsReleaseSummary? _selectedSummary;
+  DiscogsRelease? _release;
+  bool _loadingRelease = false;
+  String? _selectedSide;
+
+  // ── Recording ─────────────────────────────────────────────────────────────────
+  final AudioRecorder _recorder = AudioRecorder();
+  List<InputDevice> _devices = [];
+  InputDevice? _selectedDevice;
+  bool _isRecording = false;
+  String? _recordingPath;
+  Duration _elapsed = Duration.zero;
+  Timer? _elapsedTimer;
+  double _amplitude = -60.0;
+  List<double> _samples = [];
+  StreamSubscription<Amplitude>? _ampSub;
+
+  // ── Edit ──────────────────────────────────────────────────────────────────────
+  int _startTrim = 0;
+  int? _endTrim;
+  List<int> _splits = [];
+  List<TextEditingController> _trackCtrls = [];
+  bool _syncing = false;
+  int _syncedCount = 0;
+  int _totalTracks = 0;
+  String? _syncError;
+
+  // ── Playback ──────────────────────────────────────────────────────────────────
+  AudioPlayer? _player;
+  StreamSubscription<Duration>? _positionSub;
+  StreamSubscription<PlayerState>? _playerStateSub;
+  double _playbackPos = 0.0; // 0.0 – 1.0 normalised over entire recording
+  int? _playingSegment;
+  Duration? _recordingDuration; // actual file duration from ffprobe
+
+  @override
+  void initState() {
+    super.initState();
+    _tabCtrl = TabController(length: 3, vsync: this);
+    _loadDevices();
+  }
+
+  @override
+  void dispose() {
+    _tabCtrl.dispose();
+    _barcodeCtrl.dispose();
+    _artistCtrl.dispose();
+    _albumCtrl.dispose();
+    _freeCtrl.dispose();
+    _elapsedTimer?.cancel();
+    _ampSub?.cancel();
+    _recorder.dispose();
+    _positionSub?.cancel();
+    _playerStateSub?.cancel();
+    _player?.dispose();
+    for (final c in _trackCtrls) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  // ── Discogs helpers ───────────────────────────────────────────────────────────
+
+  Future<void> _search() async {
+    setState(() {
+      _searching = true;
+      _searchError = null;
+      _results = [];
+    });
+    try {
+      final provider = Get.find<DiscogsProvider>();
+      final tab = _tabCtrl.index;
+      final results = await switch (tab) {
+        0 => provider.search(barcode: _barcodeCtrl.text.trim(), format: 'Vinyl'),
+        1 => provider.search(
+            artist: _artistCtrl.text.trim(),
+            album: _albumCtrl.text.trim(),
+            format: 'Vinyl',
+          ),
+        _ => provider.search(q: _freeCtrl.text.trim(), format: 'Vinyl'),
+      };
+      if (mounted) setState(() => _results = results);
+    } catch (e) {
+      if (mounted) setState(() => _searchError = e.toString());
+    } finally {
+      if (mounted) setState(() => _searching = false);
+    }
+  }
+
+  Future<void> _selectRelease(DiscogsReleaseSummary summary) async {
+    setState(() {
+      _loadingRelease = true;
+      _selectedSummary = summary;
+      _release = null;
+    });
+    try {
+      final release = await Get.find<DiscogsProvider>().getRelease(summary.id);
+      if (!mounted) return;
+      setState(() {
+        _release = release;
+        _selectedSide =
+            release.availableSides.isNotEmpty ? release.availableSides.first : null;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('Failed to load release: $e'),
+              backgroundColor: Colors.red),
+        );
+        setState(() {
+          _selectedSummary = null;
+          _release = null;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _loadingRelease = false);
+    }
+  }
+
+  // ── Recording helpers ─────────────────────────────────────────────────────────
+
+  Future<void> _loadDevices() async {
+    try {
+      final devices = await _recorder.listInputDevices();
+      if (mounted) {
+        setState(() {
+          _devices = devices;
+          _selectedDevice = devices.isNotEmpty ? devices.first : null;
+        });
+      }
+    } catch (_) {
+      // Proceed with system default
+    }
+  }
+
+  Future<void> _startRecording() async {
+    final hasPermission = await _recorder.hasPermission();
+    if (!hasPermission) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Microphone permission denied')),
+        );
+      }
+      return;
+    }
+
+    final dir = await getTemporaryDirectory();
+    // WAV is universally readable by AVFoundation for preview playback;
+    // ffmpeg converts each segment to FLAC at export time.
+    final path =
+        '${dir.path}/vinyl_${DateTime.now().millisecondsSinceEpoch}.wav';
+
+    await _recorder.start(
+      RecordConfig(
+        encoder: AudioEncoder.wav,
+        sampleRate: 44100,
+        numChannels: 2,
+        device: _selectedDevice,
+      ),
+      path: path,
+    );
+
+    _ampSub = _recorder
+        .onAmplitudeChanged(const Duration(milliseconds: 100))
+        .listen((amp) {
+      if (!mounted) return;
+      setState(() {
+        _amplitude = amp.current;
+        _samples.add(_normDb(amp.current));
+      });
+    });
+
+    _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _elapsed += const Duration(seconds: 1));
+    });
+
+    setState(() {
+      _isRecording = true;
+      _recordingPath = path;
+      _elapsed = Duration.zero;
+      _samples = [];
+      _amplitude = -60.0;
+    });
+  }
+
+  Future<void> _stopRecording() async {
+    await _ampSub?.cancel();
+    _ampSub = null;
+    _elapsedTimer?.cancel();
+    _elapsedTimer = null;
+    await _recorder.stop();
+
+    // Probe actual file duration so sample↔time mapping is exact.
+    _recordingDuration = await _probeDuration(_recordingPath!);
+
+    final splits = _autoSplitsFromDiscogs();
+    final names = _defaultTrackNames(splits);
+    for (final c in _trackCtrls) {
+      c.dispose();
+    }
+
+    setState(() {
+      _isRecording = false;
+      _splits = splits;
+      _trackCtrls = names.map((n) => TextEditingController(text: n)).toList();
+      _step = _VinylStep.edit;
+    });
+  }
+
+  double _normDb(double db) =>
+      ((db - (-60.0)) / (0.0 - (-60.0))).clamp(0.0, 1.0);
+
+  Future<Duration?> _probeDuration(String path) async {
+    try {
+      final r = await Process.run('ffprobe', [
+        '-v', 'quiet',
+        '-show_entries', 'format=duration',
+        '-of', 'csv=p=0',
+        path,
+      ]);
+      final secs = double.tryParse((r.stdout as String).trim());
+      return secs != null
+          ? Duration(milliseconds: (secs * 1000).round())
+          : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Returns actual duration in seconds, falling back to sample count * 100 ms.
+  double get _totalDurationSec =>
+      (_recordingDuration?.inMilliseconds ?? _samples.length * 100) / 1000.0;
+
+  List<int> _autoSplitsFromDiscogs() {
+    if (_release == null || _samples.isEmpty) return [];
+    final tracks = (_selectedSide != null
+            ? _release!.sides[_selectedSide]
+            : null) ??
+        _release!.tracklist;
+    if (tracks.length <= 1) return [];
+
+    final splits = <int>[];
+    double cumSec = 0;
+    final totalSec = _totalDurationSec;
+    for (int i = 0; i < tracks.length - 1; i++) {
+      cumSec += (tracks[i].durationSeconds ?? 0).toDouble();
+      final ratio = totalSec > 0 ? cumSec / totalSec : 0.0;
+      splits.add((ratio * _samples.length).round().clamp(1, _samples.length - 1));
+    }
+    return splits..sort();
+  }
+
+  List<String> _defaultTrackNames(List<int> splits) {
+    final tracks = (_selectedSide != null
+            ? _release?.sides[_selectedSide]
+            : null) ??
+        _release?.tracklist ??
+        [];
+    final count = splits.length + 1;
+    return List.generate(
+        count, (i) => i < tracks.length ? tracks[i].title : 'Track ${i + 1}');
+  }
+
+  // ── Playback helpers ──────────────────────────────────────────────────────────
+
+  Future<void> _togglePlaySegment(int segIdx) async {
+    if (_playingSegment == segIdx) {
+      await _player?.stop();
+      if (mounted) setState(() => _playingSegment = null);
+      return;
+    }
+
+    final segments = _buildSegments();
+    if (segIdx >= segments.length || _recordingPath == null) return;
+    final (startSec, endSec) = segments[segIdx];
+
+    _player ??= AudioPlayer();
+    await _positionSub?.cancel();
+    await _playerStateSub?.cancel();
+
+    await _player!.setAudioSource(AudioSource.uri(Uri.file(_recordingPath!)));
+    await _player!.seek(Duration(milliseconds: (startSec * 1000).round()));
+
+    final endMs = (endSec * 1000).round();
+
+    final totalMs = _totalDurationSec * 1000;
+    _positionSub = _player!.positionStream.listen((pos) {
+      if (!mounted) return;
+      setState(() {
+        _playbackPos = totalMs > 0
+            ? (pos.inMilliseconds / totalMs).clamp(0.0, 1.0)
+            : 0.0;
+      });
+      if (pos.inMilliseconds >= endMs) _player!.stop();
+    });
+
+    // Only flip back to "stopped" after we have actually started playing —
+    // the player briefly sits in "ready + not playing" before play() fires.
+    var hasStarted = false;
+    _playerStateSub = _player!.playerStateStream.listen((state) {
+      if (state.playing) {
+        hasStarted = true;
+      } else if (hasStarted) {
+        if (mounted) setState(() => _playingSegment = null);
+      }
+    });
+
+    setState(() => _playingSegment = segIdx);
+    await _player!.play();
+  }
+
+  void _removeSplit(int splitIdx) {
+    final ctrl = _trackCtrls[splitIdx + 1];
+    final newSplits = List<int>.from(_splits)..removeAt(splitIdx);
+    final newCtrls = List<TextEditingController>.from(_trackCtrls)
+      ..removeAt(splitIdx + 1);
+    ctrl.dispose();
+    setState(() {
+      _splits = newSplits;
+      _trackCtrls = newCtrls;
+      if (_playingSegment != null && _playingSegment! > splitIdx) {
+        _playingSegment = _playingSegment! - 1;
+      }
+    });
+  }
+
+  // ── Edit helpers ──────────────────────────────────────────────────────────────
+
+  void _onSplitsChanged(List<int> splits) {
+    final newCount = splits.length + 1;
+    final oldCount = _trackCtrls.length;
+    setState(() {
+      _splits = splits;
+      if (newCount > oldCount) {
+        _trackCtrls = List.generate(
+          newCount,
+          (i) => i < oldCount
+              ? _trackCtrls[i]
+              : TextEditingController(text: 'Track ${i + 1}'),
+        );
+      } else if (newCount < oldCount) {
+        for (final c in _trackCtrls.sublist(newCount)) {
+          c.dispose();
+        }
+        _trackCtrls = _trackCtrls.sublist(0, newCount);
+      }
+    });
+  }
+
+  void _autoSplitFromDiscogs() {
+    final splits = _autoSplitsFromDiscogs();
+    if (splits.isEmpty) return;
+    final names = _defaultTrackNames(splits);
+    for (final c in _trackCtrls) {
+      c.dispose();
+    }
+    setState(() {
+      _splits = splits;
+      _trackCtrls = names.map((n) => TextEditingController(text: n)).toList();
+    });
+  }
+
+  List<(double, double)> _buildSegments() {
+    final totalSec = _totalDurationSec;
+    final n = _samples.isNotEmpty ? _samples.length : 1;
+    final bounds = [_startTrim, ..._splits, _endTrim ?? _samples.length];
+    return List.generate(
+      bounds.length - 1,
+      (i) => (bounds[i] / n * totalSec, bounds[i + 1] / n * totalSec),
+    );
+  }
+
+  Future<String> _exportSegment(
+      int index, double startSec, double endSec) async {
+    final dir = await getTemporaryDirectory();
+    final outPath = '${dir.path}/vinyl_track_$index.flac';
+    final result = await Process.run('ffmpeg', [
+      '-y',
+      '-i', _recordingPath!,
+      '-ss', startSec.toStringAsFixed(3),
+      '-to', endSec.toStringAsFixed(3),
+      '-c:a', 'flac',  // transcode WAV → FLAC losslessly
+      outPath,
+    ]);
+    if (result.exitCode != 0) {
+      throw Exception('ffmpeg error: ${result.stderr}');
+    }
+    return outPath;
+  }
+
+  Future<void> _syncAll() async {
+    final segments = _buildSegments();
+    setState(() {
+      _syncing = true;
+      _syncedCount = 0;
+      _totalTracks = segments.length;
+      _syncError = null;
+    });
+    try {
+      final albumProvider = Get.find<AlbumProvider>();
+      final libraryProvider = Get.find<LibraryProvider>();
+
+      // Resolve existing album or create one from Discogs metadata.
+      String? albumId;
+      if (_release != null && _selectedSummary != null) {
+        final q = '${_selectedSummary!.artist} ${_selectedSummary!.title}';
+        final existing = await albumProvider.searchAlbums(q);
+        if (existing.isNotEmpty) {
+          albumId = existing.first.id;
+        } else {
+          albumId = await albumProvider.createAlbum({
+            'title': _selectedSummary!.title,
+            'artist': _selectedSummary!.artist,
+            if (_selectedSummary!.year != null) 'year': _selectedSummary!.year,
+            'recording_format': 'Vinyl',
+          });
+        }
+      }
+
+      for (int i = 0; i < segments.length; i++) {
+        final (start, end) = segments[i];
+        final outPath = await _exportSegment(i, start, end);
+        final bytes = await File(outPath).readAsBytes();
+        final rawName =
+            _trackCtrls[i].text.trim().replaceAll(RegExp(r'[^\w\s\-]'), '').trim();
+        final filename = '${rawName.isEmpty ? 'track_${i + 1}' : rawName}.flac';
+        final result = await libraryProvider.uploadTrack(
+          bytes: bytes,
+          filename: filename,
+          mimeType: 'audio/flac',
+          source: 'vinyl',
+        );
+        final trackId = result['track_id'] as String;
+
+        if (albumId != null) {
+          await albumProvider.assignTrack(albumId, trackId, trackNumber: i + 1);
+        }
+
+        // Pin to cluster — this triggers mfs_copy which makes the file
+        // visible in the IPFS cluster webui.
+        await libraryProvider.pinTrack(trackId);
+
+        await File(outPath).delete().catchError((_) => File(outPath));
+        if (mounted) setState(() => _syncedCount = i + 1);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('${segments.length} track${segments.length == 1 ? '' : 's'} synced.')),
+        );
+        Navigator.of(context).pop();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _syncing = false;
+          _syncError = e.toString();
+        });
+      }
+    }
+  }
+
+  // ── Navigation ────────────────────────────────────────────────────────────────
+
+  Future<void> _goBack() async {
+    switch (_step) {
+      case _VinylStep.discogs:
+        if (mounted) Navigator.of(context).pop();
+      case _VinylStep.record:
+        if (_isRecording) return; // disallow while recording
+        setState(() => _step = _VinylStep.discogs);
+      case _VinylStep.edit:
+        await _reRecord();
+    }
+  }
+
+  /// Return to the Record step, discarding the current take but keeping Discogs data.
+  Future<void> _reRecord() async {
+    await _player?.stop();
+    await _positionSub?.cancel();
+    await _playerStateSub?.cancel();
+    _positionSub = null;
+    _playerStateSub = null;
+    for (final c in _trackCtrls) {
+      c.dispose();
+    }
+    setState(() {
+      _playingSegment = null;
+      _playbackPos = 0.0;
+      _recordingPath = null;
+      _recordingDuration = null;
+      _samples = [];
+      _amplitude = -60.0;
+      _elapsed = Duration.zero;
+      _startTrim = 0;
+      _endTrim = null;
+      _splits = [];
+      _trackCtrls = [];
+      _step = _VinylStep.record;
+    });
+  }
+
+  // ── Build ──────────────────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _goBack();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Vinyl Sync'),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: _isRecording ? null : _goBack,
+          ),
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(40),
+            child: _StepIndicator(step: _step),
+          ),
+        ),
+        body: switch (_step) {
+          _VinylStep.discogs => _buildDiscogsStep(),
+          _VinylStep.record => _buildRecordStep(),
+          _VinylStep.edit => _buildEditStep(),
+        },
+      ),
+    );
+  }
+
+  // ── Step 1: Discogs ───────────────────────────────────────────────────────────
+
+  Widget _buildDiscogsStep() {
+    return Column(
+      children: [
+        // Search tabs + input
+        TabBar(
+          controller: _tabCtrl,
+          onTap: (_) => setState(() {
+            _results = [];
+            _searchError = null;
+          }),
+          tabs: const [
+            Tab(text: 'Barcode'),
+            Tab(text: 'Artist / Album'),
+            Tab(text: 'Free text'),
+          ],
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: _buildSearchRow(),
+        ),
+        if (_searchError != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Text(_searchError!,
+                style: const TextStyle(color: Colors.red)),
+          ),
+        // Results
+        Expanded(child: _buildResultsList()),
+        // Selected release confirmation bar
+        if (_selectedSummary != null && _release != null)
+          _buildReleaseBar(),
+        // Action row
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              OutlinedButton(
+                onPressed: () => setState(() => _step = _VinylStep.record),
+                child: const Text('Skip lookup'),
+              ),
+              const Spacer(),
+              if (_selectedSummary != null && _release != null)
+                FilledButton(
+                  onPressed: () => setState(() => _step = _VinylStep.record),
+                  child: const Text('Next: Record'),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSearchRow() {
+    Widget input;
+    if (_tabCtrl.index == 1) {
+      input = Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _artistCtrl,
+              decoration: const InputDecoration(
+                  labelText: 'Artist', border: OutlineInputBorder()),
+              onSubmitted: (_) => _search(),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: _albumCtrl,
+              decoration: const InputDecoration(
+                  labelText: 'Album', border: OutlineInputBorder()),
+              onSubmitted: (_) => _search(),
+            ),
+          ),
+        ],
+      );
+    } else {
+      final ctrl = _tabCtrl.index == 0 ? _barcodeCtrl : _freeCtrl;
+      final label = _tabCtrl.index == 0 ? 'Barcode' : 'Search Discogs…';
+      final icon = _tabCtrl.index == 0 ? Icons.qr_code : Icons.search;
+      input = TextField(
+        controller: ctrl,
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+          prefixIcon: Icon(icon),
+        ),
+        onSubmitted: (_) => _search(),
+      );
+    }
+
+    return Row(
+      children: [
+        Expanded(child: input),
+        const SizedBox(width: 12),
+        FilledButton.icon(
+          onPressed: _searching ? null : _search,
+          icon: _searching
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white))
+              : const Icon(Icons.search),
+          label: const Text('Search'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildResultsList() {
+    if (_results.isEmpty && !_searching) {
+      return Center(
+        child: Text(
+          'Search Discogs to find your vinyl release.',
+          style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant),
+        ),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.only(top: 8),
+      itemCount: _results.length,
+      itemBuilder: (_, i) {
+        final r = _results[i];
+        final isSelected = _selectedSummary?.id == r.id;
+        return ListTile(
+          leading: ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: SizedBox(
+              width: 48,
+              height: 48,
+              child: r.thumbUrl != null
+                  ? Image.network(r.thumbUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) =>
+                          const Icon(Icons.album, size: 32))
+                  : const Icon(Icons.album, size: 32),
+            ),
+          ),
+          title: Text(r.title, overflow: TextOverflow.ellipsis),
+          subtitle: Text(
+            [r.artist, if (r.year != null) '${r.year}', if (r.label != null) r.label!].join(' · '),
+            overflow: TextOverflow.ellipsis,
+          ),
+          selected: isSelected,
+          trailing: isSelected
+              ? (_loadingRelease
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.check_circle, color: Colors.green))
+              : null,
+          onTap: _loadingRelease ? null : () => _selectRelease(r),
+        );
+      },
+    );
+  }
+
+  Widget _buildReleaseBar() {
+    final sides = _release!.availableSides;
+    return Container(
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          const Icon(Icons.album, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '${_selectedSummary!.artist} – ${_selectedSummary!.title}',
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ),
+          if (sides.length > 1) ...[
+            const SizedBox(width: 8),
+            const Text('Side:'),
+            const SizedBox(width: 4),
+            DropdownButton<String>(
+              value: _selectedSide,
+              underline: const SizedBox(),
+              items: sides
+                  .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                  .toList(),
+              onChanged: (v) => setState(() => _selectedSide = v),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ── Step 2: Record ────────────────────────────────────────────────────────────
+
+  Widget _buildRecordStep() {
+    final minutes = _elapsed.inMinutes.toString().padLeft(2, '0');
+    final seconds = (_elapsed.inSeconds % 60).toString().padLeft(2, '0');
+    final ampNorm = _normDb(_amplitude);
+
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Device picker
+          if (_devices.isNotEmpty) ...[
+            DropdownButtonFormField<InputDevice>(
+              decoration: const InputDecoration(
+                labelText: 'Audio input',
+                border: OutlineInputBorder(),
+              ),
+              initialValue: _selectedDevice,
+              items: _devices
+                  .map((d) => DropdownMenuItem(
+                      value: d, child: Text(d.label)))
+                  .toList(),
+              onChanged: _isRecording
+                  ? null
+                  : (v) => setState(() => _selectedDevice = v),
+            ),
+            const SizedBox(height: 24),
+          ],
+
+          // VU meter
+          Text('Level',
+              style: Theme.of(context).textTheme.labelMedium,
+              textAlign: TextAlign.center),
+          const SizedBox(height: 6),
+          _VuMeter(amplitude: ampNorm),
+          const SizedBox(height: 32),
+
+          // Elapsed timer
+          Text(
+            '$minutes:$seconds',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.displaySmall,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${_samples.length} samples',
+            textAlign: TextAlign.center,
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+          ),
+
+          const Spacer(),
+
+          // Record / Stop
+          Center(
+            child: _isRecording
+                ? FilledButton.icon(
+                    style:
+                        FilledButton.styleFrom(backgroundColor: Colors.red),
+                    onPressed: _stopRecording,
+                    icon: const Icon(Icons.stop),
+                    label: const Text('Stop recording'),
+                  )
+                : FilledButton.icon(
+                    onPressed: _startRecording,
+                    icon: const Icon(Icons.fiber_manual_record),
+                    label: const Text('Start recording'),
+                  ),
+          ),
+          const SizedBox(height: 16),
+
+          if (_release != null)
+            Text(
+              'Recording side ${_selectedSide ?? '?'} — '
+              '${((_selectedSide != null ? _release!.sides[_selectedSide] : null) ?? _release!.tracklist).length} tracks expected',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ── Step 3: Edit ──────────────────────────────────────────────────────────────
+
+  Widget _buildEditStep() {
+    final segments = _buildSegments();
+    final hasDiscogs = _release != null;
+
+    return Column(
+      children: [
+        // Waveform editor
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: WaveformEditor(
+            samples: _samples,
+            startTrim: _startTrim,
+            onStartTrimChanged: (v) => setState(() => _startTrim = v),
+            endTrim: _endTrim,
+            onEndTrimChanged: (v) => setState(() => _endTrim = v),
+            splits: _splits,
+            onSplitsChanged: _onSplitsChanged,
+            playbackPosition: _playingSegment != null ? _playbackPos : null,
+          ),
+        ),
+
+        // Toolbar
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              if (hasDiscogs)
+                OutlinedButton.icon(
+                  onPressed: _autoSplitFromDiscogs,
+                  icon: const Icon(Icons.auto_fix_high, size: 16),
+                  label: const Text('Auto-split from Discogs'),
+                ),
+              const Spacer(),
+              Text(
+                '${segments.length} track${segments.length == 1 ? '' : 's'}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 8),
+        const Divider(height: 1),
+
+        // Track list
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            itemCount: segments.length,
+            itemBuilder: (_, i) {
+              final (startSec, endSec) = segments[i];
+              final durSec = (endSec - startSec).round();
+              final mins = durSec ~/ 60;
+              final secs = (durSec % 60).toString().padLeft(2, '0');
+              final isPlaying = _playingSegment == i;
+              return ListTile(
+                leading: CircleAvatar(
+                  radius: 14,
+                  child: Text('${i + 1}',
+                      style: const TextStyle(fontSize: 11)),
+                ),
+                title: TextField(
+                  controller: _trackCtrls[i],
+                  decoration: const InputDecoration(
+                    hintText: 'Track name',
+                    border: UnderlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('$mins:$secs',
+                        style: Theme.of(context).textTheme.bodySmall),
+                    const SizedBox(width: 4),
+                    // Play / stop segment
+                    IconButton(
+                      iconSize: 20,
+                      visualDensity: VisualDensity.compact,
+                      tooltip: isPlaying ? 'Stop' : 'Preview track',
+                      icon: Icon(
+                        isPlaying ? Icons.stop_circle_outlined : Icons.play_circle_outline,
+                        color: isPlaying
+                            ? Theme.of(context).colorScheme.tertiary
+                            : null,
+                      ),
+                      onPressed: _recordingPath != null
+                          ? () => _togglePlaySegment(i)
+                          : null,
+                    ),
+                    // Remove the split that begins this track (not for track 0)
+                    if (i > 0)
+                      IconButton(
+                        iconSize: 20,
+                        visualDensity: VisualDensity.compact,
+                        tooltip: 'Remove split',
+                        icon: Icon(Icons.remove_circle_outline,
+                            color: Colors.red.shade300),
+                        onPressed: () => _removeSplit(i - 1),
+                      ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+
+        if (_syncError != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Text(_syncError!,
+                style: const TextStyle(color: Colors.red, fontSize: 12)),
+          ),
+
+        // Bottom bar
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: _syncing
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    LinearProgressIndicator(
+                      value: _totalTracks > 0
+                          ? _syncedCount / _totalTracks
+                          : null,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Syncing track $_syncedCount of $_totalTracks…',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: _reRecord,
+                      icon: const Icon(Icons.fiber_manual_record, size: 16),
+                      label: const Text('Re-record'),
+                    ),
+                    const Spacer(),
+                    FilledButton.icon(
+                      onPressed: _recordingPath != null ? _syncAll : null,
+                      icon: const Icon(Icons.cloud_upload),
+                      label: Text(
+                          'Sync ${segments.length} track${segments.length == 1 ? '' : 's'}'),
+                    ),
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Step indicator ────────────────────────────────────────────────────────────
+
+class _StepIndicator extends StatelessWidget {
+  final _VinylStep step;
+  const _StepIndicator({required this.step});
+
+  static const _labels = ['Discogs', 'Record', 'Edit'];
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final current = step.index;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
+      child: Row(
+        children: List.generate(_labels.length * 2 - 1, (i) {
+          if (i.isOdd) {
+            final done = i ~/ 2 < current;
+            return Expanded(
+              child: Divider(
+                  color: done ? scheme.primary : scheme.outlineVariant,
+                  thickness: 1.5),
+            );
+          }
+          final idx = i ~/ 2;
+          final done = idx < current;
+          final active = idx == current;
+          final bg = done || active ? scheme.primary : scheme.surfaceContainerHighest;
+          final fg = done || active ? scheme.onPrimary : scheme.onSurfaceVariant;
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircleAvatar(
+                radius: 11,
+                backgroundColor: bg,
+                child: done
+                    ? Icon(Icons.check, size: 12, color: fg)
+                    : Text('${idx + 1}',
+                        style: TextStyle(fontSize: 10, color: fg)),
+              ),
+              const SizedBox(height: 2),
+              Text(_labels[idx],
+                  style: TextStyle(
+                      fontSize: 9,
+                      color: active ? scheme.primary : scheme.onSurfaceVariant,
+                      fontWeight:
+                          active ? FontWeight.bold : FontWeight.normal)),
+            ],
+          );
+        }),
+      ),
+    );
+  }
+}
+
+// ── VU meter ──────────────────────────────────────────────────────────────────
+
+class _VuMeter extends StatelessWidget {
+  final double amplitude; // 0.0 – 1.0
+  const _VuMeter({required this.amplitude});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: SizedBox(
+        height: 20,
+        child: CustomPaint(painter: _VuPainter(amplitude: amplitude)),
+      ),
+    );
+  }
+}
+
+class _VuPainter extends CustomPainter {
+  final double amplitude;
+  const _VuPainter({required this.amplitude});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Paint()..color = const Color(0xFF1A1A2E),
+    );
+
+    if (amplitude > 0) {
+      final filled = size.width * amplitude;
+      canvas.drawRect(
+        Rect.fromLTWH(0, 0, filled, size.height),
+        Paint()
+          ..shader = LinearGradient(
+            colors: [
+              Colors.green.shade600,
+              Colors.green.shade400,
+              Colors.yellow.shade600,
+              Colors.red.shade600,
+            ],
+            stops: const [0.0, 0.6, 0.8, 1.0],
+          ).createShader(Rect.fromLTWH(0, 0, size.width, size.height)),
+      );
+    }
+
+    // Tick marks at 10% intervals
+    final tickPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.15)
+      ..strokeWidth = 1;
+    for (int i = 1; i < 10; i++) {
+      final x = size.width * i / 10;
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), tickPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_VuPainter old) => old.amplitude != amplitude;
+}

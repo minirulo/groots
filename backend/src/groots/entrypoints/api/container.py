@@ -1,6 +1,7 @@
 from dependency_injector import containers, providers
 
 from groots.adapters.impl.audio_fingerprinter import AudioFingerprinter
+from groots.adapters.impl.discogs_client import DiscogsClient
 from groots.adapters.impl.ipfs_client import IPFSClient
 from groots.adapters.impl.metadata_extractor import MetadataExtractor
 from groots.domain.commands import (
@@ -45,6 +46,12 @@ class Container(containers.DeclarativeContainer):
 
     fingerprinter = providers.Singleton(AudioFingerprinter)
     extractor = providers.Singleton(MetadataExtractor)
+
+    discogs_client = providers.Singleton(
+        DiscogsClient,
+        user_agent=config.DISCOGS_APP_NAME,
+        user_token=config.DISCOGS_USER_TOKEN,
+    )
 
     uow = providers.Factory(
         MongoUnitOfWork,

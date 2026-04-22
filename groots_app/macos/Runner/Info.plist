@@ -33,6 +33,8 @@
 	<!-- AVFoundation (AVPlayer) does not respect NSAllowsLocalNetworking.
 	     NSAllowsArbitraryLoads is required for HTTP streams in dev.
 	     Lock this down to specific domains or switch to HTTPS in production. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Groots needs microphone access to record audio from your vinyl player.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

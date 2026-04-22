@@ -163,6 +163,7 @@ async def handle_add_track(cmd: AddTrack, uow: AbstractUnitOfWork) -> dict:
             year=cmd.year,
             genre=cmd.genre,
             mime_type=cmd.mime_type,
+            source=cmd.source,
         )
         await uow.tracks.add(track)
 
@@ -243,6 +244,13 @@ async def handle_upload_track(cmd: UploadTrack, uow: AbstractUnitOfWork) -> dict
             uow=uow,
         )
 
+        # ── 4b. CD verification (only when user declared source as CD) ────────
+        cd_verification: dict | None = None
+        if cmd.source == "cd":
+            from groots.adapters.impl.cd_verifier import CdVerifier
+
+            cd_verification = CdVerifier().verify(meta).to_dict()
+
         # ── 5. Persist fingerprint (if we got one and it's genuinely new) ────
         # Skip when any existing fingerprint already covers this audio, to avoid
         # accumulating duplicates from repeated uploads of the same track.
@@ -284,12 +292,15 @@ async def handle_upload_track(cmd: UploadTrack, uow: AbstractUnitOfWork) -> dict
         user.used_storage_bytes += cmd.file_size_bytes
         await uow.users.update(user)
         await uow.commit()
-        return {
+        result: dict = {
             "track_id": track.id,
             "cid": cid,
             "album_id": album_id,
             "matched_central": matched_central_id is not None,
         }
+        if cd_verification is not None:
+            result["cd_verification"] = cd_verification
+        return result
 
 
 async def handle_pin_track(cmd: PinTrack, uow: AbstractUnitOfWork) -> None:
@@ -301,7 +312,9 @@ async def handle_pin_track(cmd: PinTrack, uow: AbstractUnitOfWork) -> None:
             raise TrackNotOwnedByUser()
 
         await uow.ipfs.pin_add(cmd.cid)
-        await uow.ipfs.mfs_copy(cmd.cid, f"{track.title}{_ext_for_mime(track.mime_type)}")
+        await uow.ipfs.mfs_copy(
+            cmd.cid, f"{track.title}{_ext_for_mime(track.mime_type)}"
+        )
 
         track.pinned = True
         await uow.tracks.update(track)

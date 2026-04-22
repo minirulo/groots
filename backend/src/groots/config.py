@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     def admin_email_set(self) -> set[str]:
         return {e.strip().lower() for e in self.ADMIN_EMAILS.split(",") if e.strip()}
 
+    # Discogs
+    DISCOGS_USER_TOKEN: str = ""
+    DISCOGS_APP_NAME: str = "Groots/1.0 +https://github.com/groots"
+
     # IPFS / Cluster proxy
     # In dev, IPFS_API_HOST/PORT should point to the ipfs-cluster proxy (9095),
     # not directly to Kubo (5001). The proxy is Kubo-API-compatible.
