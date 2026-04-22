@@ -248,7 +248,6 @@ async def handle_upload_track(cmd: UploadTrack, uow: AbstractUnitOfWork) -> dict
         cd_verification: dict | None = None
         if cmd.source == "cd":
             from groots.adapters.impl.cd_verifier import CdVerifier
-
             cd_verification = CdVerifier().verify(meta).to_dict()
 
         # ── 5. Persist fingerprint (if we got one and it's genuinely new) ────
@@ -312,9 +311,7 @@ async def handle_pin_track(cmd: PinTrack, uow: AbstractUnitOfWork) -> None:
             raise TrackNotOwnedByUser()
 
         await uow.ipfs.pin_add(cmd.cid)
-        await uow.ipfs.mfs_copy(
-            cmd.cid, f"{track.title}{_ext_for_mime(track.mime_type)}"
-        )
+        await uow.ipfs.mfs_copy(cmd.cid, f"{track.title}{_ext_for_mime(track.mime_type)}")
 
         track.pinned = True
         await uow.tracks.update(track)

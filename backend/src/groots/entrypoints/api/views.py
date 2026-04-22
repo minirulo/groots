@@ -104,16 +104,3 @@ async def get_playlist(
         return None
 
 
-async def get_user_genres(user_id: str, uow: AbstractUnitOfWork) -> list[str]:
-    async with uow:
-        tracks = await uow.tracks.list_by_user(user_id)
-        genres = sorted({t.genre for t in tracks if t.genre})
-        return genres
-
-
-async def get_tracks_by_genre(
-    user_id: str, genre: str, uow: AbstractUnitOfWork
-) -> list[dict]:
-    async with uow:
-        tracks = await uow.tracks.list_by_user(user_id)
-        return [asdict(t) for t in tracks if t.genre == genre]
