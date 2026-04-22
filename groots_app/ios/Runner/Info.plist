@@ -26,6 +26,8 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Groots uses the camera to scan album covers.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Groots needs microphone access to record audio for your music.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

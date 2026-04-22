@@ -41,6 +41,11 @@ dependencies:
   # Utils
   intl: ^0.20.2
 
+  # Cover scanning (mobile only)
+  image_picker: ^1.1.2
+  image_cropper: ^8.0.2
+  image: ^4.3.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

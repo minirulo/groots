@@ -1,3 +1,4 @@
+import base64
 from typing import Annotated
 
 from dependency_injector.wiring import Provide, inject
@@ -7,11 +8,14 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Response,
     UploadFile,
     status,
     Security,
 )
+from fastapi.responses import JSONResponse
 
+from groots.adapters.impl.metadata_extractor import MetadataExtractor
 from groots.domain.commands import AddTrack, PinTrack, RemoveTrack, UploadTrack
 from groots.domain.errors import SoundNetError
 from groots.entrypoints.api import views
@@ -26,6 +30,8 @@ from groots.service_layer.errors import to_http_exception
 from groots.service_layer.messagebus import MessageBus
 from groots.service_layer.unit_of_work import AbstractUnitOfWork
 from groots.config import settings
+
+_COVER_READ_LIMIT = 1024 * 1024  # 1 MB — enough to reach any embedded cover
 
 router = APIRouter(prefix="/library", tags=["library"])
 
@@ -185,3 +191,24 @@ async def upload_track(
         )
     except SoundNetError as e:
         raise to_http_exception(e)
+
+
+@router.post("/extract-cover")
+@inject
+async def extract_cover(
+    file: Annotated[UploadFile, File()],
+    _: Annotated[dict, Security(get_current_oauth_user, scopes=[settings.LIBRARY_READ])],
+) -> Response:
+    """
+    Reads up to 1 MB from the uploaded audio file and returns any embedded
+    cover art as ``{"mime": "image/jpeg", "data": "<base64>"}``.
+    Returns 204 No Content when no cover is found.
+    """
+    head = await file.read(_COVER_READ_LIMIT)
+    meta = MetadataExtractor().extract(head)
+    if not meta.cover_image:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return JSONResponse({
+        "mime": meta.cover_mime or "image/jpeg",
+        "data": base64.b64encode(meta.cover_image).decode(),
+    })

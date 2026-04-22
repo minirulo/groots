@@ -12,6 +12,10 @@ class PlayerService extends GetxService {
   final Rx<Duration> duration = Rx(Duration.zero);
   final RxBool hasNext = false.obs;
   final RxBool hasPrevious = false.obs;
+  final RxBool isRepeating = false.obs;
+  final RxList<QueueItem> queue = <QueueItem>[].obs;
+  final RxInt queueCurrentIndex = 0.obs;
+  final RxInt queueNumManuallyAdded = 0.obs;
 
   PlayerService(this._handler);
 
@@ -47,6 +51,13 @@ class PlayerService extends GetxService {
     _sync();
   }
 
+  /// Enqueue [track] to play after any previously queued manual tracks,
+  /// before the album remainder.
+  void addToQueue(Track track, String url) {
+    _handler.addNextInQueue((track: track, url: url));
+    _sync();
+  }
+
   Future<void> togglePause() async {
     _handler.playbackState.value.playing
         ? await _handler.pause()
@@ -58,6 +69,11 @@ class PlayerService extends GetxService {
   Future<void> next() => _handler.skipToNext();
   Future<void> previous() => _handler.skipToPrevious();
 
+  void toggleRepeat() {
+    _handler.toggleRepeat();
+    isRepeating.value = _handler.isRepeating;
+  }
+
   Future<void> stop() async {
     await _handler.stop();
     _sync();
@@ -67,6 +83,9 @@ class PlayerService extends GetxService {
     currentTrack.value = _handler.currentTrack;
     hasNext.value = _handler.hasNext;
     hasPrevious.value = _handler.hasPrevious;
+    queue.value = _handler.queueSnapshot.toList();
+    queueCurrentIndex.value = _handler.queueCurrentIndex;
+    queueNumManuallyAdded.value = _handler.numManuallyAdded;
   }
 
   @override

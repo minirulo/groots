@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:http/http.dart' as http;
 import 'package:http_interceptor/http_interceptor.dart';
 
 import 'package:get/get.dart';
@@ -77,11 +79,33 @@ class AlbumProvider {
     return list.map((e) => Album.fromJson(e as Map<String, dynamic>)).toList();
   }
 
+  Future<List<String>> getGenres() async {
+    final res = await _client.get(Uri.parse('$_base/genres'));
+    if (res.statusCode != 200) throw Exception(res.body);
+    return (jsonDecode(res.body) as List).cast<String>();
+  }
+
   Future<List<Album>> getCatalogue() async {
     final res = await _client.get(Uri.parse('$_base/albums/catalogue'));
     if (res.statusCode != 200) throw Exception(res.body);
     final list = jsonDecode(res.body) as List;
     return list.map((e) => Album.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<void> uploadCover(String albumId, Uint8List bytes, String mime) async {
+    final ext = mime.endsWith('png') ? 'png' : 'jpg';
+    final req = http.MultipartRequest(
+      'POST',
+      Uri.parse('$_base/albums/$albumId/cover'),
+    );
+    req.files.add(http.MultipartFile.fromBytes(
+      'file',
+      bytes,
+      filename: 'cover.$ext',
+    ));
+    final streamed = await _client.send(req);
+    final body = await streamed.stream.bytesToString();
+    if (streamed.statusCode != 200) throw Exception(body);
   }
 
   String coverUrl(String cid) => Get.find<IpfsLocalNode>().coverUrl(cid);

@@ -19,6 +19,23 @@ class AlbumCreateRequested extends AlbumEvent {
   });
 }
 
+class AlbumUpdateRequested extends AlbumEvent {
+  final String albumId;
+  final String title;
+  final String artist;
+  final int? year;
+  final String? genre;
+  final String? recordingFormat;
+  AlbumUpdateRequested({
+    required this.albumId,
+    required this.title,
+    required this.artist,
+    this.year,
+    this.genre,
+    this.recordingFormat,
+  });
+}
+
 class AlbumDeleteRequested extends AlbumEvent {
   final String albumId;
   AlbumDeleteRequested(this.albumId);

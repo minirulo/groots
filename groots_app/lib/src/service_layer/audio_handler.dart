@@ -14,13 +14,23 @@ class SoundNetAudioHandler extends BaseAudioHandler with SeekHandler {
   AudioPlayer _player = AudioPlayer();
   final List<QueueItem> _queue = [];
   int _currentIndex = -1;
+  // How many manually-added items sit between current and album remainder.
+  int _numManuallyAdded = 0;
+  bool _repeat = false;
+
+  bool get isRepeating => _repeat;
+  void toggleRepeat() => _repeat = !_repeat;
 
   SoundNetAudioHandler() {
     _player.playingStream.listen((_) => _broadcastState());
     _player.processingStateStream.listen((state) {
       _broadcastState();
       if (state == ProcessingState.completed) {
-        skipToNext();
+        if (_repeat) {
+          _playCurrentItem();
+        } else {
+          skipToNext();
+        }
       }
     });
     _player.durationStream.listen((d) {
@@ -42,12 +52,25 @@ class SoundNetAudioHandler extends BaseAudioHandler with SeekHandler {
   bool get hasNext => _currentIndex < _queue.length - 1;
   bool get hasPrevious => _currentIndex > 0;
 
+  List<QueueItem> get queueSnapshot => List.unmodifiable(_queue);
+  int get queueCurrentIndex => _currentIndex;
+  int get numManuallyAdded => _numManuallyAdded;
+
   Future<void> loadQueue(List<QueueItem> items, int startIndex) async {
     _queue
       ..clear()
       ..addAll(items);
     _currentIndex = startIndex.clamp(0, items.length - 1);
+    _numManuallyAdded = 0;
     await _playCurrentItem();
+  }
+
+  /// Insert [item] right after all previously enqueued manual tracks but before
+  /// the album remainder, so manually-added tracks play in insertion order.
+  void addNextInQueue(QueueItem item) {
+    final insertAt = _currentIndex + 1 + _numManuallyAdded;
+    _queue.insert(insertAt, item);
+    _numManuallyAdded++;
   }
 
   Future<void> _playCurrentItem() async {
@@ -136,6 +159,7 @@ class SoundNetAudioHandler extends BaseAudioHandler with SeekHandler {
     await _player.stop();
     _queue.clear();
     _currentIndex = -1;
+    _numManuallyAdded = 0;
     mediaItem.add(null);
     _broadcastState();
   }
@@ -146,6 +170,7 @@ class SoundNetAudioHandler extends BaseAudioHandler with SeekHandler {
   @override
   Future<void> skipToNext() async {
     if (hasNext) {
+      if (_numManuallyAdded > 0) _numManuallyAdded--;
       _currentIndex++;
       await _playCurrentItem();
     }

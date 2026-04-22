@@ -29,9 +29,9 @@ enum IpfsNodeStatus { stopped, starting, running, stopping }
 ///   Swarm   → 0.0.0.0:4101
 class IpfsLocalNode extends GetxService {
   static const _apiPort = 5101;
-  static const _gatewayPort = 8180;
-
   static const _channel = MethodChannel('groots/kubo');
+
+  int get _gatewayPort => Environment().config.localGatewayPort;
 
   final RxBool isRunning = false.obs;
   final Rx<IpfsNodeStatus> status = IpfsNodeStatus.stopped.obs;
@@ -84,7 +84,11 @@ class IpfsLocalNode extends GetxService {
 
     final result = await _channel.invokeMapMethod<String, dynamic>(
       'start',
-      {'repo_path': repoPath, 'swarm_key': swarmKey},
+      {
+        'repo_path': repoPath,
+        'swarm_key': swarmKey,
+        'gateway_port': _gatewayPort,
+      },
     );
 
     if (result?['success'] != true) {
@@ -126,6 +130,27 @@ class IpfsLocalNode extends GetxService {
   String coverUrl(String cid) {
     if (isRunning.value) return '$_gatewayUrl/ipfs/$cid';
     return 'http://${Environment().config.ipfsGatewayHost}/ipfs/$cid';
+  }
+
+  /// Register the app as a macOS Login Item so the IPFS daemon starts at boot.
+  /// Returns null on success, or an error message on failure.
+  Future<String?> installAsLoginItem() async {
+    try {
+      final result = await _channel.invokeMapMethod<String, dynamic>('registerLoginItem');
+      return result?['error'] as String?;
+    } on PlatformException catch (e) {
+      return e.message;
+    }
+  }
+
+  /// Remove the app from macOS Login Items.
+  Future<String?> uninstallLoginItem() async {
+    try {
+      final result = await _channel.invokeMapMethod<String, dynamic>('unregisterLoginItem');
+      return result?['error'] as String?;
+    } on PlatformException catch (e) {
+      return e.message;
+    }
   }
 
   /// Pin a CID on the local node so it survives the central node going offline.

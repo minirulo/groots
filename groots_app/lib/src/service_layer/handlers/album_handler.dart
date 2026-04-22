@@ -9,6 +9,8 @@ class AlbumHandler {
 
   Future<List<Album>> loadAlbums() => _provider.getAlbums();
 
+  Future<List<String>> loadGenres() => _provider.getGenres();
+
   Future<String> createAlbum(CreateAlbumCommand cmd) => _provider.createAlbum({
         'title': cmd.title,
         'artist': cmd.artist,

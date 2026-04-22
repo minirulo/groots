@@ -36,6 +36,8 @@ class PinTrackCommand extends Command {
 
 class LoadAlbumsCommand extends Command {}
 
+class LoadGenresCommand extends Command {}
+
 class CreateAlbumCommand extends Command {
   final String title;
   final String artist;

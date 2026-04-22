@@ -1,5 +1,6 @@
 import FlutterMacOS
 import Foundation
+import ServiceManagement
 
 /// Bridges the "groots/kubo" Flutter MethodChannel to KuboXPCClient.
 ///
@@ -52,6 +53,10 @@ final class KuboMethodChannel {
             KuboXPCClient.shared.status { running in
                 result(["running": running])
             }
+        case "registerLoginItem":
+            handleRegisterLoginItem(result: result)
+        case "unregisterLoginItem":
+            handleUnregisterLoginItem(result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -65,15 +70,43 @@ final class KuboMethodChannel {
         else {
             result(FlutterError(
                 code: "INVALID_ARGS",
-                message: "start requires {repo_path: String, swarm_key: String}",
+                message: "start requires {repo_path: String, swarm_key: String, gateway_port: Int}",
                 details: nil
             ))
             return
         }
 
-        KuboXPCClient.shared.start(repoPath: repoPath, swarmKey: swarmKey) { [weak self] success, error in
+        let gatewayPort = args["gateway_port"] as? Int ?? 8180
+
+        KuboXPCClient.shared.start(repoPath: repoPath, swarmKey: swarmKey, gatewayPort: gatewayPort) { [weak self] success, error in
             if success { self?.onStateChanged?(true) }
             result(["success": success, "error": error as Any])
+        }
+    }
+
+    private func handleRegisterLoginItem(result: @escaping FlutterResult) {
+        if #available(macOS 13.0, *) {
+            do {
+                try SMAppService.mainApp.register()
+                result(["success": true, "error": NSNull()])
+            } catch {
+                result(["success": false, "error": error.localizedDescription])
+            }
+        } else {
+            result(["success": false, "error": "Login Items registration requires macOS 13 or later"])
+        }
+    }
+
+    private func handleUnregisterLoginItem(result: @escaping FlutterResult) {
+        if #available(macOS 13.0, *) {
+            do {
+                try SMAppService.mainApp.unregister()
+                result(["success": true, "error": NSNull()])
+            } catch {
+                result(["success": false, "error": error.localizedDescription])
+            }
+        } else {
+            result(["success": false, "error": "Login Items requires macOS 13 or later"])
         }
     }
 }

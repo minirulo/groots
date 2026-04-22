@@ -16,9 +16,9 @@ final class KuboXPCClient {
 
     // MARK: - Public
 
-    func start(repoPath: String, swarmKey: String, completion: @escaping (Bool, String?) -> Void) {
+    func start(repoPath: String, swarmKey: String, gatewayPort: Int, completion: @escaping (Bool, String?) -> Void) {
         proxy { proxy in
-            proxy.start(repoPath: repoPath, swarmKey: swarmKey) { success, error in
+            proxy.start(repoPath: repoPath, swarmKey: swarmKey, gatewayPort: gatewayPort) { success, error in
                 completion(success, error)
             }
         } onError: { error in

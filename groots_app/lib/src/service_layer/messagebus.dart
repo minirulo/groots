@@ -34,6 +34,7 @@ class Messagebus {
       RemoveTrackCommand() => await _libraryHandler.removeTrack(command) as T,
       PinTrackCommand() => await _libraryHandler.pinTrack(command) as T,
       LoadAlbumsCommand() => await _albumHandler.loadAlbums() as T,
+      LoadGenresCommand() => await _albumHandler.loadGenres() as T,
       CreateAlbumCommand() => await _albumHandler.createAlbum(command) as T,
       UpdateAlbumCommand() => await _albumHandler.updateAlbum(command) as T,
       DeleteAlbumCommand() => await _albumHandler.deleteAlbum(command) as T,
