@@ -46,6 +46,7 @@ class IpfsLocalNode extends GetxService {
   @override
   void onInit() {
     super.onInit();
+    if (!Platform.isMacOS) return;
     // Allow native side (dock menu) to trigger start/stop on the Dart service.
     _channel.setMethodCallHandler(_handleNativeCall);
     // Poll daemon reachability every 5 s to keep [isRunning] in sync even if
@@ -72,7 +73,9 @@ class IpfsLocalNode extends GetxService {
   // ── Public API ────────────────────────────────────────────────────────────
 
   /// Start the local Kubo daemon. Idempotent — safe to call if already running.
+  /// No-op on non-macOS platforms (XPC helper is macOS-only).
   Future<void> start() async {
+    if (!Platform.isMacOS) return;
     if (isRunning.value || status.value == IpfsNodeStatus.starting) return;
 
     status.value = IpfsNodeStatus.starting;
@@ -109,6 +112,7 @@ class IpfsLocalNode extends GetxService {
 
   /// Gracefully stop the daemon.
   Future<void> stop() async {
+    if (!Platform.isMacOS) return;
     if (!isRunning.value || status.value == IpfsNodeStatus.stopping) return;
     status.value = IpfsNodeStatus.stopping;
     await _channel.invokeMethod<void>('stop');
@@ -134,7 +138,9 @@ class IpfsLocalNode extends GetxService {
 
   /// Register the app as a macOS Login Item so the IPFS daemon starts at boot.
   /// Returns null on success, or an error message on failure.
+  /// Unsupported on non-macOS platforms.
   Future<String?> installAsLoginItem() async {
+    if (!Platform.isMacOS) return 'Login Items are only supported on macOS.';
     try {
       final result = await _channel.invokeMapMethod<String, dynamic>('registerLoginItem');
       return result?['error'] as String?;
@@ -144,7 +150,9 @@ class IpfsLocalNode extends GetxService {
   }
 
   /// Remove the app from macOS Login Items.
+  /// Unsupported on non-macOS platforms.
   Future<String?> uninstallLoginItem() async {
+    if (!Platform.isMacOS) return 'Login Items are only supported on macOS.';
     try {
       final result = await _channel.invokeMapMethod<String, dynamic>('unregisterLoginItem');
       return result?['error'] as String?;
