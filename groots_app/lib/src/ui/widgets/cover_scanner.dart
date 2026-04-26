@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
@@ -21,30 +23,35 @@ Future<(Uint8List, String)?> scanAlbumCover(BuildContext context) async {
   );
   if (picked == null || !context.mounted) return null;
 
-  final cropped = await ImageCropper().cropImage(
-    sourcePath: picked.path,
-    aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1),
-    compressFormat: ImageCompressFormat.jpg,
-    compressQuality: 95,
-    uiSettings: [
-      AndroidUiSettings(
-        toolbarTitle: 'Align Cover',
-        toolbarColor: Colors.black,
-        toolbarWidgetColor: Colors.white,
-        lockAspectRatio: true,
-        hideBottomControls: false,
-      ),
-      IOSUiSettings(
-        title: 'Align Cover',
-        aspectRatioLockEnabled: true,
-        resetAspectRatioEnabled: false,
-        rotateButtonsHidden: false,
-      ),
-    ],
-  );
-  if (cropped == null || !context.mounted) return null;
-
-  final rawBytes = await cropped.readAsBytes();
+  final Uint8List rawBytes;
+  if (Platform.isLinux) {
+    // image_cropper has no Linux implementation — use the picked file directly.
+    rawBytes = await picked.readAsBytes();
+  } else {
+    final cropped = await ImageCropper().cropImage(
+      sourcePath: picked.path,
+      aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1),
+      compressFormat: ImageCompressFormat.jpg,
+      compressQuality: 95,
+      uiSettings: [
+        AndroidUiSettings(
+          toolbarTitle: 'Align Cover',
+          toolbarColor: Colors.black,
+          toolbarWidgetColor: Colors.white,
+          lockAspectRatio: true,
+          hideBottomControls: false,
+        ),
+        IOSUiSettings(
+          title: 'Align Cover',
+          aspectRatioLockEnabled: true,
+          resetAspectRatioEnabled: false,
+          rotateButtonsHidden: false,
+        ),
+      ],
+    );
+    if (cropped == null || !context.mounted) return null;
+    rawBytes = await cropped.readAsBytes();
+  }
   if (!context.mounted) return null;
 
   final result = await Navigator.of(context).push<Uint8List>(
@@ -80,12 +87,13 @@ class _SourceSheet extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          ListTile(
-            leading: const Icon(Icons.camera_alt_outlined),
-            title: const Text('Scan with camera'),
-            subtitle: const Text('Photograph and crop the album cover'),
-            onTap: () => Navigator.pop(context, ImageSource.camera),
-          ),
+          if (!Platform.isLinux)
+            ListTile(
+              leading: const Icon(Icons.camera_alt_outlined),
+              title: const Text('Scan with camera'),
+              subtitle: const Text('Photograph and crop the album cover'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
           ListTile(
             leading: const Icon(Icons.photo_library_outlined),
             title: const Text('Choose from gallery'),
@@ -143,10 +151,7 @@ class _CoverEnhanceScreenState extends State<_CoverEnhanceScreen> {
     );
 
     // 3×3 unsharp/sharpen kernel
-    out = img.convolution(
-      out,
-      filter: [0, -1, 0, -1, 5, -1, 0, -1, 0],
-    );
+    out = img.convolution(out, filter: [0, -1, 0, -1, 5, -1, 0, -1, 0]);
 
     return Uint8List.fromList(img.encodeJpg(out, quality: 92));
   }

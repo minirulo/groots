@@ -10,9 +10,9 @@ from groots.domain.commands import (
     RemoveTrackFromPlaylist,
     RenamePlaylist,
 )
-from groots.domain.errors import SoundNetError
+from groots.domain.errors import GrootException
 from groots.entrypoints.api import views
-from groots.entrypoints.api.auth import get_current_oauth_user
+from groots.entrypoints.api.auth import OAuthUser, get_current_oauth_user
 from groots.entrypoints.api.container import Container
 from groots.entrypoints.api.routes.schemas.playlist import (
     AddTrackToPlaylistRequest,
@@ -32,11 +32,11 @@ router = APIRouter(prefix="/playlists", tags=["playlists"])
 @inject
 async def list_playlists(
     current_user: Annotated[
-        dict, Security(get_current_oauth_user, scopes=[settings.PLAYLIST_READ])
+        OAuthUser, Security(get_current_oauth_user, scopes=[settings.PLAYLIST_READ])
     ],
     uow: Annotated[AbstractUnitOfWork, Depends(Provide[Container.uow])],
 ) -> list[PlaylistResponse]:
-    playlists = await views.get_user_playlists(current_user["user_id"], uow)
+    playlists = await views.get_user_playlists(current_user.user_id, uow)
     return [PlaylistResponse(**p) for p in playlists]
 
 
@@ -45,15 +45,15 @@ async def list_playlists(
 async def create_playlist(
     body: CreatePlaylistRequest,
     current_user: Annotated[
-        dict, Security(get_current_oauth_user, scopes=[settings.PLAYLIST_WRITE])
+        OAuthUser, Security(get_current_oauth_user, scopes=[settings.PLAYLIST_WRITE])
     ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> dict:
     try:
         return await bus.handle(
-            CreatePlaylist(user_id=current_user["user_id"], name=body.name)
+            CreatePlaylist(user_id=current_user.user_id, name=body.name)
         )
-    except SoundNetError as e:
+    except GrootException as e:
         raise to_http_exception(e)
 
 
@@ -62,11 +62,11 @@ async def create_playlist(
 async def get_playlist(
     playlist_id: str,
     current_user: Annotated[
-        dict, Security(get_current_oauth_user, scopes=[settings.PLAYLIST_READ])
+        OAuthUser, Security(get_current_oauth_user, scopes=[settings.PLAYLIST_READ])
     ],
     uow: Annotated[AbstractUnitOfWork, Depends(Provide[Container.uow])],
 ) -> PlaylistResponse:
-    playlist = await views.get_playlist(playlist_id, current_user["user_id"], uow)
+    playlist = await views.get_playlist(playlist_id, current_user.user_id, uow)
     if not playlist:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Playlist not found"
@@ -80,20 +80,20 @@ async def rename_playlist(
     playlist_id: str,
     body: RenamePlaylistRequest,
     current_user: Annotated[
-        dict, Security(get_current_oauth_user, scopes=[settings.PLAYLIST_WRITE])
+        OAuthUser, Security(get_current_oauth_user, scopes=[settings.PLAYLIST_WRITE])
     ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> dict:
     try:
         await bus.handle(
             RenamePlaylist(
-                user_id=current_user["user_id"],
+                user_id=current_user.user_id,
                 playlist_id=playlist_id,
                 name=body.name,
             )
         )
         return {"renamed": True}
-    except SoundNetError as e:
+    except GrootException as e:
         raise to_http_exception(e)
 
 
@@ -102,15 +102,15 @@ async def rename_playlist(
 async def delete_playlist(
     playlist_id: str,
     current_user: Annotated[
-        dict, Security(get_current_oauth_user, scopes=[settings.PLAYLIST_WRITE])
+        OAuthUser, Security(get_current_oauth_user, scopes=[settings.PLAYLIST_WRITE])
     ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> None:
     try:
         await bus.handle(
-            DeletePlaylist(user_id=current_user["user_id"], playlist_id=playlist_id)
+            DeletePlaylist(user_id=current_user.user_id, playlist_id=playlist_id)
         )
-    except SoundNetError as e:
+    except GrootException as e:
         raise to_http_exception(e)
 
 
@@ -120,20 +120,20 @@ async def add_track(
     playlist_id: str,
     body: AddTrackToPlaylistRequest,
     current_user: Annotated[
-        dict, Security(get_current_oauth_user, scopes=[settings.PLAYLIST_WRITE])
+        OAuthUser, Security(get_current_oauth_user, scopes=[settings.PLAYLIST_WRITE])
     ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> dict:
     try:
         await bus.handle(
             AddTrackToPlaylist(
-                user_id=current_user["user_id"],
+                user_id=current_user.user_id,
                 playlist_id=playlist_id,
                 track_id=body.track_id,
             )
         )
         return {"added": True}
-    except SoundNetError as e:
+    except GrootException as e:
         raise to_http_exception(e)
 
 
@@ -143,18 +143,18 @@ async def remove_track(
     playlist_id: str,
     track_id: str,
     current_user: Annotated[
-        dict, Security(get_current_oauth_user, scopes=[settings.PLAYLIST_WRITE])
+        OAuthUser, Security(get_current_oauth_user, scopes=[settings.PLAYLIST_WRITE])
     ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> dict:
     try:
         await bus.handle(
             RemoveTrackFromPlaylist(
-                user_id=current_user["user_id"],
+                user_id=current_user.user_id,
                 playlist_id=playlist_id,
                 track_id=track_id,
             )
         )
         return {"removed": True}
-    except SoundNetError as e:
+    except GrootException as e:
         raise to_http_exception(e)

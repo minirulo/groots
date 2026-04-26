@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import bcrypt
@@ -8,6 +9,13 @@ from jose import JWTError, jwt
 from groots.config import settings
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_STR}/auth/login")
+
+
+@dataclass
+class OAuthUser:
+    user_id: str
+    email: str
+    is_admin: bool
 
 
 def hash_password(password: str) -> str:
@@ -32,7 +40,7 @@ def create_access_token(data: dict) -> str:
 def get_current_oauth_user(
     security_scopes: SecurityScopes,
     token: str = Depends(oauth2_scheme),
-) -> dict:
+) -> OAuthUser:
     exc = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -52,18 +60,16 @@ def get_current_oauth_user(
             token_scopes = token_scope_str.split()
 
             for scope in security_scopes.scopes:
-                print(scope)
-                print(token_scopes)
                 if scope not in token_scopes:
                     raise HTTPException(
                         403,
                         detail=f'Missing "{scope}" scope',
                     )
 
-        return {
-            "user_id": user_id,
-            "email": payload.get("email"),
-            "is_admin": payload.get("is_admin", False),
-        }
+        return OAuthUser(
+            user_id=user_id,
+            email=payload.get("email"),
+            is_admin=payload.get("is_admin", False),
+        )
     except JWTError:
         raise exc

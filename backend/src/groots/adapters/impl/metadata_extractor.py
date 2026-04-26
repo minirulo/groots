@@ -146,19 +146,6 @@ class MetadataExtractor:
         tags = f.tags
         cover_image, cover_mime = _extract_cover(f, tags)
 
-        # CD provenance signals
-        # ISRC: TSRC frame (ID3/MP3), ISRC comment (Vorbis/FLAC)
-        isrc = _get("TSRC", "ISRC", "isrc")
-
-        # MCN / barcode: stored as custom TXXX frames in ID3, or Vorbis comments
-        mcn = _get(
-            "TXXX:MCN", "TXXX:BARCODE", "TXXX:CATALOGNUMBER",
-            "MCN", "BARCODE", "CATALOGNUMBER",
-        )
-
-        # Encoder / ripper tool: TENC (ID3), encoded-by (Vorbis), ©too (MP4)
-        encoder = _get("TENC", "encoded-by", "\xa9too")
-
         return AudioMetadata(
             title=_tag_get(tags, "TIT2", "title", "\xa9nam"),
             artist=_tag_get(tags, "TPE1", "artist", "\xa9ART"),

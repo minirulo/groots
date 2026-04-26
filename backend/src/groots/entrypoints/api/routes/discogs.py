@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Security, status
 
 from groots.adapters.impl.discogs_client import DiscogsClient
 from groots.config import settings
-from groots.entrypoints.api.auth import get_current_oauth_user
+from groots.entrypoints.api.auth import OAuthUser, get_current_oauth_user
 from groots.entrypoints.api.container import Container
 from groots.entrypoints.api.routes.schemas.discogs import (
     DiscogsReleaseSchema,
@@ -20,24 +20,39 @@ router = APIRouter(prefix="/discogs", tags=["discogs"])
 
 def _http_error(exc: httpx.HTTPStatusError) -> HTTPException:
     if exc.response.status_code == 404:
-        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Release not found on Discogs")
+        return HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Release not found on Discogs"
+        )
     if exc.response.status_code == 429:
-        return HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Discogs rate limit reached — try again shortly")
-    return HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Discogs API error")
+        return HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Discogs rate limit reached — try again shortly",
+        )
+    return HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY, detail="Discogs API error"
+    )
 
 
 @router.get("/search", response_model=DiscogsSearchResponse)
 @inject
 async def search_releases(
-    current_user: Annotated[
-        dict, Security(get_current_oauth_user, scopes=[settings.LIBRARY_READ])
+    _: Annotated[
+        OAuthUser, Security(get_current_oauth_user, scopes=[settings.LIBRARY_READ])
     ],
     discogs: Annotated[DiscogsClient, Depends(Provide[Container.discogs_client])],
-    barcode: Annotated[str | None, Query(description="EAN / UPC barcode printed on the sleeve")] = None,
+    barcode: Annotated[
+        str | None, Query(description="EAN / UPC barcode printed on the sleeve")
+    ] = None,
     artist: Annotated[str | None, Query(description="Artist name")] = None,
     album: Annotated[str | None, Query(description="Album / release title")] = None,
-    q: Annotated[str | None, Query(description="Free-text query (fallback when artist/album unknown)")] = None,
-    format: Annotated[str | None, Query(description='Discogs format filter, e.g. "Vinyl", "CD", "Cassette"')] = None,
+    q: Annotated[
+        str | None,
+        Query(description="Free-text query (fallback when artist/album unknown)"),
+    ] = None,
+    format: Annotated[
+        str | None,
+        Query(description='Discogs format filter, e.g. "Vinyl", "CD", "Cassette"'),
+    ] = None,
 ) -> DiscogsSearchResponse:
     """
     Search Discogs for releases.
@@ -55,11 +70,15 @@ async def search_releases(
         if barcode:
             results = await discogs.search_by_barcode(barcode, format=format)
         else:
-            results = await discogs.search(query=q, artist=artist, album=album, format=format)
+            results = await discogs.search(
+                query=q, artist=artist, album=album, format=format
+            )
     except httpx.HTTPStatusError as exc:
         raise _http_error(exc)
     except httpx.RequestError:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Could not reach Discogs")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="Could not reach Discogs"
+        )
 
     return DiscogsSearchResponse(
         results=[
@@ -82,8 +101,8 @@ async def search_releases(
 @inject
 async def get_release(
     release_id: int,
-    current_user: Annotated[
-        dict, Security(get_current_oauth_user, scopes=[settings.LIBRARY_READ])
+    _: Annotated[
+        OAuthUser, Security(get_current_oauth_user, scopes=[settings.LIBRARY_READ])
     ],
     discogs: Annotated[DiscogsClient, Depends(Provide[Container.discogs_client])],
 ) -> DiscogsReleaseSchema:
@@ -97,7 +116,9 @@ async def get_release(
     except httpx.HTTPStatusError as exc:
         raise _http_error(exc)
     except httpx.RequestError:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Could not reach Discogs")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="Could not reach Discogs"
+        )
 
     def _track(t) -> DiscogsTrackSchema:
         return DiscogsTrackSchema(
@@ -120,5 +141,7 @@ async def get_release(
         genres=release.genres,
         styles=release.styles,
         tracklist=[_track(t) for t in release.tracklist],
-        sides={side: [_track(t) for t in tracks] for side, tracks in release.sides.items()},
+        sides={
+            side: [_track(t) for t in tracks] for side, tracks in release.sides.items()
+        },
     )

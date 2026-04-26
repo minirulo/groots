@@ -27,6 +27,7 @@
       "editor.formatOnSave": true,
       "editor.defaultFormatter": "ms-python.black-formatter",
     },
+    "python.defaultInterpreterPath": "backend/src/.venv/bin/python3",
   },
   "extensions": {
     "recommendations": [

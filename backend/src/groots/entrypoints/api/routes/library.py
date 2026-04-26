@@ -17,9 +17,9 @@ from fastapi.responses import JSONResponse
 
 from groots.adapters.impl.metadata_extractor import MetadataExtractor
 from groots.domain.commands import AddTrack, PinTrack, RemoveTrack, UploadTrack
-from groots.domain.errors import SoundNetError
+from groots.domain.errors import GrootException
 from groots.entrypoints.api import views
-from groots.entrypoints.api.auth import get_current_oauth_user
+from groots.entrypoints.api.auth import OAuthUser, get_current_oauth_user
 from groots.entrypoints.api.container import Container
 from groots.entrypoints.api.routes.schemas.track import (
     AddTrackRequest,
@@ -42,11 +42,11 @@ router = APIRouter(prefix="/library", tags=["library"])
 @inject
 async def list_tracks(
     current_user: Annotated[
-        dict, Security(get_current_oauth_user, scopes=[settings.LIBRARY_READ])
+        OAuthUser, Security(get_current_oauth_user, scopes=[settings.LIBRARY_READ])
     ],
     uow: Annotated[AbstractUnitOfWork, Depends(Provide[Container.uow])],
 ) -> list[TrackResponse]:
-    tracks = await views.get_user_library(current_user["user_id"], uow)
+    tracks = await views.get_user_library(current_user.user_id, uow)
     return [TrackResponse(**t) for t in tracks]
 
 
@@ -55,14 +55,14 @@ async def list_tracks(
 async def add_track(
     body: AddTrackRequest,
     current_user: Annotated[
-        dict, Security(get_current_oauth_user, scopes=[settings.LIBRARY_WRITE])
+        OAuthUser, Security(get_current_oauth_user, scopes=[settings.LIBRARY_WRITE])
     ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> dict:
     try:
         return await bus.handle(
             AddTrack(
-                user_id=current_user["user_id"],
+                user_id=current_user.user_id,
                 cid=body.cid,
                 title=body.title,
                 artist=body.artist,
@@ -77,7 +77,7 @@ async def add_track(
                 source=body.source,
             )
         )
-    except SoundNetError as e:
+    except GrootException as e:
         raise to_http_exception(e)
 
 
@@ -86,15 +86,13 @@ async def add_track(
 async def remove_track(
     track_id: str,
     current_user: Annotated[
-        dict, Security(get_current_oauth_user, scopes=[settings.LIBRARY_WRITE])
+        OAuthUser, Security(get_current_oauth_user, scopes=[settings.LIBRARY_WRITE])
     ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> None:
     try:
-        await bus.handle(
-            RemoveTrack(user_id=current_user["user_id"], track_id=track_id)
-        )
-    except SoundNetError as e:
+        await bus.handle(RemoveTrack(user_id=current_user.user_id, track_id=track_id))
+    except GrootException as e:
         raise to_http_exception(e)
 
 
@@ -103,12 +101,12 @@ async def remove_track(
 async def pin_track(
     track_id: str,
     current_user: Annotated[
-        dict, Security(get_current_oauth_user, scopes=[settings.LIBRARY_WRITE])
+        OAuthUser, Security(get_current_oauth_user, scopes=[settings.LIBRARY_WRITE])
     ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
     uow: Annotated[AbstractUnitOfWork, Depends(Provide[Container.uow])],
 ) -> dict:
-    track = await views.get_track(track_id, current_user["user_id"], uow)
+    track = await views.get_track(track_id, current_user.user_id, uow)
     if not track:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Track not found"
@@ -116,13 +114,13 @@ async def pin_track(
     try:
         await bus.handle(
             PinTrack(
-                user_id=current_user["user_id"],
+                user_id=current_user.user_id,
                 track_id=track_id,
                 cid=track["cid"],
             )
         )
         return {"pinned": True}
-    except SoundNetError as e:
+    except GrootException as e:
         raise to_http_exception(e)
 
 
@@ -131,7 +129,7 @@ async def pin_track(
 async def get_stream_url(
     track_id: str,
     current_user: Annotated[
-        dict, Security(get_current_oauth_user, scopes=[settings.LIBRARY_WRITE])
+        OAuthUser, Security(get_current_oauth_user, scopes=[settings.LIBRARY_WRITE])
     ],
     uow: Annotated[AbstractUnitOfWork, Depends(Provide[Container.uow])],
 ) -> StreamUrlResponse:
@@ -142,7 +140,7 @@ async def get_stream_url(
     In production, proxy this URL through nginx with auth to prevent
     public CID access.
     """
-    track = await views.get_track(track_id, current_user["user_id"], uow)
+    track = await views.get_track(track_id, current_user.user_id, uow)
     if not track:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Track not found"
@@ -166,7 +164,7 @@ async def get_stream_url(
 async def upload_track(
     file: Annotated[UploadFile, File()],
     current_user: Annotated[
-        dict, Security(get_current_oauth_user, scopes=[settings.LIBRARY_WRITE])
+        OAuthUser, Security(get_current_oauth_user, scopes=[settings.LIBRARY_WRITE])
     ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
     source: Annotated[str | None, Form()] = None,
@@ -181,7 +179,7 @@ async def upload_track(
     try:
         return await bus.handle(
             UploadTrack(
-                user_id=current_user["user_id"],
+                user_id=current_user.user_id,
                 filename=file.filename or "track",
                 content=content,
                 file_size_bytes=len(content),
@@ -189,7 +187,7 @@ async def upload_track(
                 source=source,
             )
         )
-    except SoundNetError as e:
+    except GrootException as e:
         raise to_http_exception(e)
 
 
@@ -197,7 +195,9 @@ async def upload_track(
 @inject
 async def extract_cover(
     file: Annotated[UploadFile, File()],
-    _: Annotated[dict, Security(get_current_oauth_user, scopes=[settings.LIBRARY_READ])],
+    _: Annotated[
+        dict, Security(get_current_oauth_user, scopes=[settings.LIBRARY_READ])
+    ],
 ) -> Response:
     """
     Reads up to 1 MB from the uploaded audio file and returns any embedded
@@ -208,7 +208,9 @@ async def extract_cover(
     meta = MetadataExtractor().extract(head)
     if not meta.cover_image:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
-    return JSONResponse({
-        "mime": meta.cover_mime or "image/jpeg",
-        "data": base64.b64encode(meta.cover_image).decode(),
-    })
+    return JSONResponse(
+        {
+            "mime": meta.cover_mime or "image/jpeg",
+            "data": base64.b64encode(meta.cover_image).decode(),
+        }
+    )

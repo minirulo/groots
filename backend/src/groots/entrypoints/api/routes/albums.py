@@ -20,9 +20,9 @@ from groots.domain.commands import (
     UpdateAlbum,
     UploadAlbumCover,
 )
-from groots.domain.errors import SoundNetError
+from groots.domain.errors import GrootException
 from groots.entrypoints.api import views
-from groots.entrypoints.api.auth import get_current_oauth_user
+from groots.entrypoints.api.auth import OAuthUser, get_current_oauth_user
 from groots.entrypoints.api.container import Container
 from groots.entrypoints.api.routes.schemas.album import (
     AlbumResponse,
@@ -42,12 +42,12 @@ router = APIRouter(prefix="/albums", tags=["albums"])
 @inject
 async def list_albums(
     current_user: Annotated[
-        dict, Security(get_current_oauth_user, scopes=[settings.ALBUM_READ])
+        OAuthUser, Security(get_current_oauth_user, scopes=[settings.ALBUM_READ])
     ],
     uow: Annotated[AbstractUnitOfWork, Depends(Provide[Container.uow])],
 ) -> list[AlbumResponse]:
     """Return albums that the current user has tracks in."""
-    albums = await views.get_user_albums(current_user["user_id"], uow)
+    albums = await views.get_user_albums(current_user.user_id, uow)
     return [AlbumResponse(**a) for a in albums]
 
 
@@ -79,7 +79,7 @@ async def search_albums(
 async def create_album(
     body: CreateAlbumRequest,
     current_user: Annotated[
-        dict, Security(get_current_oauth_user, scopes=[settings.ALBUM_WRITE])
+        OAuthUser, Security(get_current_oauth_user, scopes=[settings.ALBUM_WRITE])
     ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> dict:
@@ -92,10 +92,10 @@ async def create_album(
                 genre=body.genre,
                 description=body.description,
                 recording_format=body.recording_format,
-                created_by=current_user["user_id"],
+                created_by=current_user.user_id,
             )
         )
-    except SoundNetError as e:
+    except GrootException as e:
         raise to_http_exception(e)
 
 
@@ -120,7 +120,7 @@ async def update_album(
     album_id: str,
     body: UpdateAlbumRequest,
     current_user: Annotated[
-        dict, Security(get_current_oauth_user, scopes=[settings.ALBUM_WRITE])
+        OAuthUser, Security(get_current_oauth_user, scopes=[settings.ALBUM_WRITE])
     ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> dict:
@@ -128,7 +128,7 @@ async def update_album(
         return await bus.handle(
             UpdateAlbum(
                 album_id=album_id,
-                requesting_user_id=current_user["user_id"],
+                requesting_user_id=current_user.user_id,
                 title=body.title,
                 artist=body.artist,
                 year=body.year,
@@ -137,7 +137,7 @@ async def update_album(
                 recording_format=body.recording_format,
             )
         )
-    except SoundNetError as e:
+    except GrootException as e:
         raise to_http_exception(e)
 
 
@@ -146,7 +146,7 @@ async def update_album(
 async def delete_album(
     album_id: str,
     current_user: Annotated[
-        dict, Security(get_current_oauth_user, scopes=[settings.ALBUM_WRITE])
+        OAuthUser, Security(get_current_oauth_user, scopes=[settings.ALBUM_WRITE])
     ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> None:
@@ -154,11 +154,11 @@ async def delete_album(
         await bus.handle(
             DeleteAlbum(
                 album_id=album_id,
-                requesting_user_id=current_user["user_id"],
+                requesting_user_id=current_user.user_id,
                 is_admin=current_user.get("is_admin", False),
             )
         )
-    except SoundNetError as e:
+    except GrootException as e:
         raise to_http_exception(e)
 
 
@@ -168,7 +168,7 @@ async def upload_cover(
     album_id: str,
     file: Annotated[UploadFile, File()],
     current_user: Annotated[
-        dict, Security(get_current_oauth_user, scopes=[settings.ALBUM_WRITE])
+        OAuthUser, Security(get_current_oauth_user, scopes=[settings.ALBUM_WRITE])
     ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> dict:
@@ -176,14 +176,14 @@ async def upload_cover(
     try:
         return await bus.handle(
             UploadAlbumCover(
-                user_id=current_user["user_id"],
+                user_id=current_user.user_id,
                 album_id=album_id,
                 content=content,
                 filename=file.filename or "cover",
                 mime_type=file.content_type or "image/jpeg",
             )
         )
-    except SoundNetError as e:
+    except GrootException as e:
         raise to_http_exception(e)
 
 
@@ -193,21 +193,21 @@ async def assign_track(
     album_id: str,
     body: AssignTrackRequest,
     current_user: Annotated[
-        dict, Security(get_current_oauth_user, scopes=[settings.ALBUM_WRITE])
+        OAuthUser, Security(get_current_oauth_user, scopes=[settings.ALBUM_WRITE])
     ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> dict:
     try:
         await bus.handle(
             AssignTrackToAlbum(
-                user_id=current_user["user_id"],
+                user_id=current_user.user_id,
                 track_id=body.track_id,
                 album_id=album_id,
                 track_number=body.track_number,
             )
         )
         return {"assigned": True}
-    except SoundNetError as e:
+    except GrootException as e:
         raise to_http_exception(e)
 
 
@@ -217,17 +217,17 @@ async def unassign_track(
     album_id: str,
     track_id: str,
     current_user: Annotated[
-        dict, Security(get_current_oauth_user, scopes=[settings.ALBUM_WRITE])
+        OAuthUser, Security(get_current_oauth_user, scopes=[settings.ALBUM_WRITE])
     ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
 ) -> dict:
     try:
         await bus.handle(
             UnassignTrackFromAlbum(
-                user_id=current_user["user_id"],
+                user_id=current_user.user_id,
                 track_id=track_id,
             )
         )
         return {"unassigned": True}
-    except SoundNetError as e:
+    except GrootException as e:
         raise to_http_exception(e)

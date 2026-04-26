@@ -3,10 +3,22 @@
 # `ipfs init` but before the daemon starts.
 set -ex
 
-# Kubo ≥0.40 introduced AutoConf, which tries to reach the public mainnet
-# config service and refuses to start when a swarm.key is detected.
-# Disable it explicitly for private-network nodes.
+# ── Private-network compatibility (Kubo ≥0.34) ───────────────────────────────
+# AutoConf: reaches public mainnet config service, incompatible with swarm.key.
 ipfs config --json AutoConf.Enabled false
+# Migration to repo v18 writes 'auto' placeholders that require AutoConf.
+ipfs config --json Bootstrap '[]'
+ipfs config --json Routing.DelegatedRouters '[]'
+ipfs config --json Ipns.DelegatedPublishers '[]'
+ipfs config --json DNS.Resolvers '{}'
+# AutoTLS: connection-gates peers without ACME certs, blocks private peers.
+ipfs config --json AutoTLS.Enabled false
+# Websocket transport incompatible with PNET (swarm.key).
+ipfs config --json Swarm.Transports.Network.Websocket false
+# Routing.Type=auto conflicts with private networks; use dht explicitly.
+ipfs config Routing.Type dht
+# server profile blocks all RFC-1918 ranges — our peers are on 10.x / 172.x.
+ipfs config --json Swarm.AddrFilters '[]'
 
 # Remove all public bootstrap peers so this node stays on the private swarm only.
 ipfs bootstrap rm --all

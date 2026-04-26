@@ -1,13 +1,21 @@
 from typing import Annotated
 
 from dependency_injector.wiring import Provide, inject
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, Security, status
+from fastapi import (
+    APIRouter,
+    Cookie,
+    Depends,
+    HTTPException,
+    Response,
+    Security,
+    status,
+)
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 
 from groots.domain.commands import LoginUser, RegisterUser
-from groots.domain.errors import SoundNetError
+from groots.domain.errors import GrootException
 from groots.entrypoints.api.container import Container
 from groots.entrypoints.api.routes.schemas.user import (
     RegisterRequest,
@@ -41,7 +49,7 @@ async def register(
                 role_id=body.role_id,
             )
         )
-    except SoundNetError as e:
+    except GrootException as e:
         raise to_http_exception(e)
 
 
@@ -56,11 +64,12 @@ async def login(
             LoginUser(email=form.username, password=form.password)
         )
         return TokenResponse(**result)
-    except SoundNetError as e:
+    except GrootException as e:
         raise to_http_exception(e)
 
 
 # ── WebUI auth ────────────────────────────────────────────────────────────────
+
 
 @router.get("/webui-check", status_code=200)
 async def webui_check(
@@ -85,9 +94,7 @@ async def webui_check(
 @router.get("/webui-login", response_class=HTMLResponse)
 async def webui_login_page(next: str = _WEBUI_URL, error: str = "") -> HTMLResponse:
     """Serves the admin login form for the IPFS WebUI."""
-    error_html = (
-        f'<p class="error">{error}</p>' if error else ""
-    )
+    error_html = f'<p class="error">{error}</p>' if error else ""
     html = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -169,7 +176,7 @@ async def webui_login_submit(
         result = await bus.handle(
             LoginUser(email=form.username, password=form.password)
         )
-    except SoundNetError:
+    except GrootException:
         login_url = f"/api/auth/webui-login?next={next}&error=Invalid+email+or+password"
         return RedirectResponse(url=login_url, status_code=303)
 
