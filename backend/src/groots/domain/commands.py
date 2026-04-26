@@ -29,6 +29,7 @@ class AddTrack:
     year: int | None = None
     genre: str | None = None
     mime_type: str = "audio/mpeg"
+    source: str | None = None
 
 
 @dataclass
@@ -51,6 +52,7 @@ class UploadTrack:
     content: bytes
     file_size_bytes: int
     mime_type: str
+    source: str | None = None
 
 
 # ── Album commands ────────────────────────────────────────────────────────────

@@ -15,6 +15,14 @@ class AddTrackRequest(BaseModel):
     year: int | None = None
     genre: str | None = None
     mime_type: str = "audio/mpeg"
+    source: str | None = None
+
+
+class CdVerificationResponse(BaseModel):
+    has_isrc: bool
+    has_mcn: bool
+    encoder: str | None
+    confidence: str  # "strong" | "medium" | "weak"
 
 
 class TrackResponse(BaseModel):
@@ -32,6 +40,7 @@ class TrackResponse(BaseModel):
     mime_type: str
     pinned: bool
     matched_central_id: str | None
+    source: str | None
     created_at: datetime
 
 

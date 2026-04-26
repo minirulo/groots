@@ -22,4 +22,5 @@ class Track:
     pinned: bool = False  # True when central node has pinned the CID
     fingerprint_id: str | None = None  # ID of the TrackFingerprint record for this track
     matched_central_id: str | None = None  # fingerprint ID of central match, if any
+    source: str | None = None  # e.g. "cd", "vinyl", "digital_download", "streaming_purchase"
     created_at: datetime = field(default_factory=datetime.utcnow)

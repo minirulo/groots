@@ -10,11 +10,16 @@ import 'package:path/path.dart' as p;
 import '../../adapters/providers/album_provider.dart';
 import '../../adapters/providers/library_provider.dart';
 import '../../domain/models/album.dart';
+import '../../domain/models/music_source.dart';
+import '../../service_layer/blocs/album/album_bloc.dart';
+import '../../service_layer/blocs/album/album_event.dart';
 import '../../service_layer/blocs/library/library_bloc.dart';
 import '../../service_layer/blocs/library/library_event.dart';
 import '../../service_layer/commands.dart';
 import '../../service_layer/ipfs_local_node.dart';
 import '../../service_layer/messagebus.dart';
+import '../widgets/source_picker_sheet.dart';
+import 'vinyl_sync_view.dart';
 
 // ── Data helpers ──────────────────────────────────────────────────────────────
 
@@ -22,7 +27,11 @@ class _ParsedEntry {
   final int? trackNumber;
   final String title;
   final String artist;
-  const _ParsedEntry({this.trackNumber, required this.title, required this.artist});
+  const _ParsedEntry({
+    this.trackNumber,
+    required this.title,
+    required this.artist,
+  });
 }
 
 _ParsedEntry _parseFilename(String filePath, {String fallbackArtist = ''}) {
@@ -48,7 +57,11 @@ _ParsedEntry _parseFilename(String filePath, {String fallbackArtist = ''}) {
     );
   }
 
-  return _ParsedEntry(trackNumber: null, title: filename, artist: fallbackArtist);
+  return _ParsedEntry(
+    trackNumber: null,
+    title: filename,
+    artist: fallbackArtist,
+  );
 }
 
 // ── Main widget ───────────────────────────────────────────────────────────────
@@ -65,34 +78,75 @@ class _SyncViewState extends State<SyncView> {
   String? _selectedDir;
 
   bool _searchingAlbum = false;
-  bool _albumResolved = false;  // user has made a choice about the album
-  String? _albumId;             // null = no album, or the resolved album_id
-  Album? _resolvedAlbum;        // for display purposes
+  bool _albumResolved = false;
+  String? _albumId;
+  Album? _resolvedAlbum;
+
+  MusicSource? _source;
 
   bool _syncing = false;
 
-  static const _audioExtensions = {'.mp3', '.flac', '.aac', '.ogg', '.wav', '.m4a', '.opus'};
+  static const _audioExtensions = {
+    '.mp3',
+    '.flac',
+    '.aac',
+    '.ogg',
+    '.wav',
+    '.m4a',
+    '.opus',
+  };
 
-  // ── Picking ─────────────────────────────────────────────────────────────────
+  // ── Source picking ───────────────────────────────────────────────────────────
+
+  Future<MusicSource?> _pickSource() async {
+    return showMaterialModalBottomSheet<MusicSource>(
+      context: context,
+      builder: (_) => const SourcePickerSheet(),
+    );
+  }
+
+  // ── File/folder picking ──────────────────────────────────────────────────────
 
   Future<void> _pickDirectory() async {
+    final source = await _pickSource();
+    if (source == null) return;
+
+    if (source == MusicSource.vinyl) {
+      if (mounted) {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const VinylSyncView()),
+        );
+        if (mounted) {
+          context.read<LibraryBloc>().add(LibraryLoadRequested());
+          context.read<AlbumBloc>().add(AlbumLoadRequested());
+        }
+      }
+      return;
+    }
+
     final dir = await FilePicker.platform.getDirectoryPath(
       dialogTitle: 'Select an album folder',
     );
     if (dir == null) return;
 
-    final files = Directory(dir)
-        .listSync(recursive: false)
-        .whereType<File>()
-        .where((f) => _audioExtensions.contains(p.extension(f.path).toLowerCase()))
-        .toList()
-      ..sort((a, b) => a.path.compareTo(b.path));
+    final files =
+        Directory(dir)
+            .listSync(recursive: false)
+            .whereType<File>()
+            .where(
+              (f) =>
+                  _audioExtensions.contains(p.extension(f.path).toLowerCase()),
+            )
+            .toList()
+          ..sort((a, b) => a.path.compareTo(b.path));
 
     setState(() {
       _entries
         ..clear()
         ..addAll(files.map((f) => _SyncEntry(file: f)));
       _selectedDir = dir;
+      _source = source;
       _albumResolved = false;
       _albumId = null;
       _resolvedAlbum = null;
@@ -104,6 +158,23 @@ class _SyncViewState extends State<SyncView> {
   }
 
   Future<void> _pickFiles() async {
+    final source = await _pickSource();
+    if (source == null) return;
+
+    if (source == MusicSource.vinyl) {
+      if (mounted) {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const VinylSyncView()),
+        );
+        if (mounted) {
+          context.read<LibraryBloc>().add(LibraryLoadRequested());
+          context.read<AlbumBloc>().add(AlbumLoadRequested());
+        }
+      }
+      return;
+    }
+
     final result = await FilePicker.platform.pickFiles(
       dialogTitle: 'Select audio files',
       allowMultiple: true,
@@ -122,6 +193,7 @@ class _SyncViewState extends State<SyncView> {
         ..clear()
         ..addAll(files.map((f) => _SyncEntry(file: f)));
       _selectedDir = null;
+      _source = source;
       _albumResolved = false;
       _albumId = null;
       _resolvedAlbum = null;
@@ -257,6 +329,40 @@ class _SyncViewState extends State<SyncView> {
 
     setState(() => _syncing = false);
     if (mounted) context.read<LibraryBloc>().add(LibraryLoadRequested());
+
+    // If user declared CD but none of the tracks had CD signals, warn and revert source.
+    if (mounted && _source == MusicSource.cd && !useLocalNode) {
+      final weakCount = _entries
+          .where((e) => e.cdVerification?['confidence'] == 'weak')
+          .length;
+      if (weakCount > 0) await _showCdMismatchDialog(weakCount);
+    }
+  }
+
+  Future<void> _showCdMismatchDialog(int weakCount) async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(
+          Icons.warning_amber_rounded,
+          size: 40,
+          color: Colors.orange,
+        ),
+        title: const Text('No CD metadata found'),
+        content: Text(
+          '$weakCount track${weakCount == 1 ? '' : 's'} had no ISRC, MCN or ripper '
+          'signature — the files do not appear to originate from a physical CD.\n\n'
+          'The source has been changed to "Other".',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+    if (mounted) setState(() => _source = MusicSource.other);
   }
 
   /// Dev path: add to local Kubo node → register CID with API → API pins on server.
@@ -264,20 +370,25 @@ class _SyncViewState extends State<SyncView> {
     final bus = Get.find<Messagebus>();
     final albumArtist = _resolvedAlbum?.artist;
     final cid = await _ipfsAdd(entry.file);
-    final parsed = _parseFilename(entry.file.path,
-        fallbackArtist: albumArtist ?? 'Unknown');
+    final parsed = _parseFilename(
+      entry.file.path,
+      fallbackArtist: albumArtist ?? 'Unknown',
+    );
     final stat = await entry.file.stat();
 
     final payload = <String, dynamic>{
       'cid': cid,
       'title': parsed.title,
-      'artist': parsed.artist.isNotEmpty ? parsed.artist : (albumArtist ?? 'Unknown'),
+      'artist': parsed.artist.isNotEmpty
+          ? parsed.artist
+          : (albumArtist ?? 'Unknown'),
       'duration_seconds': 0,
       'file_size_bytes': stat.size,
       'mime_type': _mimeFor(p.extension(entry.file.path)),
       if (_albumId != null) 'album': _resolvedAlbum?.title,
       if (_albumId != null) 'album_id': _albumId,
       if (parsed.trackNumber != null) 'track_number': parsed.trackNumber,
+      if (_source != null) 'source': _source!.apiValue,
     };
 
     final trackId = await bus.handle<String>(AddTrackCommand(payload));
@@ -297,26 +408,36 @@ class _SyncViewState extends State<SyncView> {
       bytes: bytes,
       filename: filename,
       mimeType: mimeType,
+      source: _source?.apiValue,
     );
+
+    // Store CD verification result for display in the track list
+    if (_source == MusicSource.cd) {
+      final cdData = result['cd_verification'] as Map<String, dynamic>?;
+      if (cdData != null) {
+        setState(() => entry.cdVerification = cdData);
+      }
+    }
 
     // Assign to album if one was selected
     if (_albumId != null) {
-      final parsed = _parseFilename(entry.file.path,
-          fallbackArtist: albumArtist ?? 'Unknown');
+      final parsed = _parseFilename(
+        entry.file.path,
+        fallbackArtist: albumArtist ?? 'Unknown',
+      );
       final bus = Get.find<Messagebus>();
-      await bus.handle(AssignTrackToAlbumCommand(
-        albumId: _albumId!,
-        trackId: result['track_id'] as String,
-        trackNumber: parsed.trackNumber,
-      ));
+      await bus.handle(
+        AssignTrackToAlbumCommand(
+          albumId: _albumId!,
+          trackId: result['track_id'] as String,
+          trackNumber: parsed.trackNumber,
+        ),
+      );
     }
   }
 
   /// Adds [file] to the local Kubo node, copies it into MFS (so it appears in
   /// the Web UI Files tab), and returns the CID.
-  ///
-  /// Falls back to the Docker node on port 5001 when the local daemon is not
-  /// running (e.g. first run before IpfsLocalNode has started).
   Future<String> _ipfsAdd(File file) async {
     final node = Get.find<IpfsLocalNode>();
     final apiPort = node.isRunning.value ? 5101 : 5001;
@@ -329,10 +450,14 @@ class _SyncViewState extends State<SyncView> {
     final addReq = await HttpClient().postUrl(
       Uri.parse('$apiBase/api/v0/add?pin=true'),
     );
-    addReq.headers.contentType =
-        ContentType('multipart', 'form-data', parameters: {'boundary': boundary});
+    addReq.headers.contentType = ContentType(
+      'multipart',
+      'form-data',
+      parameters: {'boundary': boundary},
+    );
     final filename = p.basename(file.path);
-    final header = '--$boundary\r\n'
+    final header =
+        '--$boundary\r\n'
         'Content-Disposition: form-data; name="file"; filename="$filename"\r\n'
         'Content-Type: application/octet-stream\r\n\r\n';
     addReq.add(header.codeUnits);
@@ -346,8 +471,6 @@ class _SyncViewState extends State<SyncView> {
     final cid = match.group(1)!;
 
     // ── 2. Copy into MFS so it shows up in Web UI → Files tab ─────────────
-    // /api/v0/files/cp?arg=/ipfs/<cid>&arg=/groots/<filename>
-    // Creates /groots/ dir on first run (ignores error if it exists).
     try {
       final mkdirReq = await HttpClient().postUrl(
         Uri.parse('$apiBase/api/v0/files/mkdir?arg=%2Fgroots&parents=true'),
@@ -370,15 +493,15 @@ class _SyncViewState extends State<SyncView> {
   }
 
   String _mimeFor(String ext) => switch (ext.toLowerCase()) {
-        '.mp3' => 'audio/mpeg',
-        '.flac' => 'audio/flac',
-        '.aac' => 'audio/aac',
-        '.ogg' => 'audio/ogg',
-        '.wav' => 'audio/wav',
-        '.m4a' => 'audio/mp4',
-        '.opus' => 'audio/opus',
-        _ => 'audio/mpeg',
-      };
+    '.mp3' => 'audio/mpeg',
+    '.flac' => 'audio/flac',
+    '.aac' => 'audio/aac',
+    '.ogg' => 'audio/ogg',
+    '.wav' => 'audio/wav',
+    '.m4a' => 'audio/mp4',
+    '.opus' => 'audio/opus',
+    _ => 'audio/mpeg',
+  };
 
   // ── Build ───────────────────────────────────────────────────────────────────
 
@@ -434,13 +557,14 @@ class _SyncViewState extends State<SyncView> {
           ),
         ),
 
-        // Album resolution status bar
+        // Source + album status bar
         if (_entries.isNotEmpty)
-          _AlbumStatusBar(
+          _StatusBar(
+            source: _source,
             searchingAlbum: _searchingAlbum,
             albumResolved: _albumResolved,
             resolvedAlbum: _resolvedAlbum,
-            onTap: _entries.isNotEmpty && !_syncing && !_searchingAlbum
+            onChangeAlbum: _entries.isNotEmpty && !_syncing && !_searchingAlbum
                 ? _showCreateSheet
                 : null,
           ),
@@ -449,13 +573,17 @@ class _SyncViewState extends State<SyncView> {
         Expanded(
           child: _entries.isEmpty
               ? const Center(
-                  child: Text('Select an album folder to get started.'))
+                  child: Text('Select an album folder to get started.'),
+                )
               : ListView.builder(
                   itemCount: _entries.length,
                   itemBuilder: (context, i) {
                     final e = _entries[i];
                     final parsed = _parseFilename(e.file.path);
-                    final ext = p.extension(e.file.path).replaceFirst('.', '').toUpperCase();
+                    final ext = p
+                        .extension(e.file.path)
+                        .replaceFirst('.', '')
+                        .toUpperCase();
                     final isPending = e.status == _Status.pending;
                     return ListTile(
                       leading: _StatusIcon(status: e.status),
@@ -464,25 +592,36 @@ class _SyncViewState extends State<SyncView> {
                         overflow: TextOverflow.ellipsis,
                       ),
                       subtitle: e.error != null
-                          ? Text(e.error!,
-                              style: const TextStyle(color: Colors.red))
-                          : parsed.trackNumber != null
-                              ? Text('Track ${parsed.trackNumber}')
-                              : null,
-                      trailing: isPending && !_syncing
-                          ? Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(ext, style: Theme.of(context).textTheme.bodySmall),
-                                const SizedBox(width: 4),
-                                IconButton(
-                                  icon: const Icon(Icons.close, size: 18),
-                                  tooltip: 'Remove from list',
-                                  onPressed: () => setState(() => _entries.removeAt(i)),
-                                ),
-                              ],
+                          ? Text(
+                              e.error!,
+                              style: const TextStyle(color: Colors.red),
                             )
-                          : Text(ext, style: Theme.of(context).textTheme.bodySmall),
+                          : parsed.trackNumber != null
+                          ? Text('Track ${parsed.trackNumber}')
+                          : null,
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (e.cdVerification != null)
+                            _CdVerificationBadge(
+                              confidence:
+                                  e.cdVerification!['confidence'] as String,
+                            ),
+                          Text(
+                            ext,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          if (isPending && !_syncing) ...[
+                            const SizedBox(width: 4),
+                            IconButton(
+                              icon: const Icon(Icons.close, size: 18),
+                              tooltip: 'Remove from list',
+                              onPressed: () =>
+                                  setState(() => _entries.removeAt(i)),
+                            ),
+                          ],
+                        ],
+                      ),
                     );
                   },
                 ),
@@ -492,19 +631,21 @@ class _SyncViewState extends State<SyncView> {
   }
 }
 
-// ── Album status bar ──────────────────────────────────────────────────────────
+// ── Combined status bar (source + album) ─────────────────────────────────────
 
-class _AlbumStatusBar extends StatelessWidget {
+class _StatusBar extends StatelessWidget {
+  final MusicSource? source;
   final bool searchingAlbum;
   final bool albumResolved;
   final Album? resolvedAlbum;
-  final VoidCallback? onTap;
+  final VoidCallback? onChangeAlbum;
 
-  const _AlbumStatusBar({
+  const _StatusBar({
+    required this.source,
     required this.searchingAlbum,
     required this.albumResolved,
     required this.resolvedAlbum,
-    this.onTap,
+    this.onChangeAlbum,
   });
 
   @override
@@ -513,16 +654,17 @@ class _AlbumStatusBar extends StatelessWidget {
 
     final scheme = Theme.of(context).colorScheme;
 
-    Widget content;
+    Widget albumContent;
     if (!albumResolved) {
-      content = const SizedBox.shrink();
+      albumContent = const SizedBox.shrink();
     } else if (resolvedAlbum != null) {
       final meta = [
         if (resolvedAlbum!.artist.isNotEmpty) resolvedAlbum!.artist,
         if (resolvedAlbum!.year != null) '${resolvedAlbum!.year}',
-        if (resolvedAlbum!.recordingFormat != null) resolvedAlbum!.recordingFormat!,
+        if (resolvedAlbum!.recordingFormat != null)
+          resolvedAlbum!.recordingFormat!,
       ].join(' · ');
-      content = Row(
+      albumContent = Row(
         children: [
           Icon(Icons.album, size: 18, color: scheme.primary),
           const SizedBox(width: 8),
@@ -531,36 +673,43 @@ class _AlbumStatusBar extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(resolvedAlbum!.title,
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodyMedium
-                        ?.copyWith(fontWeight: FontWeight.bold),
-                    overflow: TextOverflow.ellipsis),
+                Text(
+                  resolvedAlbum!.title,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                ),
                 if (meta.isNotEmpty)
-                  Text(meta,
-                      style: Theme.of(context).textTheme.bodySmall,
-                      overflow: TextOverflow.ellipsis),
+                  Text(
+                    meta,
+                    style: Theme.of(context).textTheme.bodySmall,
+                    overflow: TextOverflow.ellipsis,
+                  ),
               ],
             ),
           ),
-          if (onTap != null)
-            TextButton(onPressed: onTap, child: const Text('Change')),
+          if (onChangeAlbum != null)
+            TextButton(onPressed: onChangeAlbum, child: const Text('Change')),
         ],
       );
     } else {
-      content = Row(
+      albumContent = Row(
         children: [
           Icon(Icons.album_outlined, size: 18, color: scheme.onSurfaceVariant),
           const SizedBox(width: 8),
-          Text('No album',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: scheme.onSurfaceVariant)),
+          Text(
+            'No album',
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+          ),
           const Spacer(),
-          if (onTap != null)
-            TextButton(onPressed: onTap, child: const Text('Set album')),
+          if (onChangeAlbum != null)
+            TextButton(
+              onPressed: onChangeAlbum,
+              child: const Text('Set album'),
+            ),
         ],
       );
     }
@@ -568,7 +717,61 @@ class _AlbumStatusBar extends StatelessWidget {
     return Container(
       color: scheme.surfaceContainerLow,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: content,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Source chip
+          if (source != null) ...[
+            Row(
+              children: [
+                Icon(source!.icon, size: 14, color: scheme.onSurfaceVariant),
+                const SizedBox(width: 6),
+                Text(
+                  source!.label,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+          ],
+          albumContent,
+        ],
+      ),
+    );
+  }
+}
+
+// ── CD verification badge ────────────────────────────────────────────────────
+
+class _CdVerificationBadge extends StatelessWidget {
+  final String confidence;
+  const _CdVerificationBadge({required this.confidence});
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, color, tooltip) = switch (confidence) {
+      'strong' => (
+        Icons.verified_outlined,
+        Colors.green,
+        'CD verified (ISRC + ripper)',
+      ),
+      'medium' => (
+        Icons.info_outline,
+        Colors.orange,
+        'Partial CD signals found',
+      ),
+      _ => (
+        Icons.warning_amber_outlined,
+        Colors.grey,
+        'No CD metadata detected',
+      ),
+    };
+    return Tooltip(
+      message: tooltip,
+      child: Icon(icon, size: 16, color: color),
     );
   }
 }
@@ -607,10 +810,9 @@ class _AlbumMatchSheet extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             'Does this match the folder you selected?',
-            style: Theme.of(context)
-                .textTheme
-                .bodySmall
-                ?.copyWith(color: scheme.onSurfaceVariant),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
           const SizedBox(height: 20),
           Row(
@@ -622,8 +824,12 @@ class _AlbumMatchSheet extends StatelessWidget {
                   width: 72,
                   height: 72,
                   child: coverUrl != null
-                      ? Image.network(coverUrl!, fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => _CoverPlaceholder(scheme: scheme))
+                      ? Image.network(
+                          coverUrl!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) =>
+                              _CoverPlaceholder(scheme: scheme),
+                        )
                       : _CoverPlaceholder(scheme: scheme),
                 ),
               ),
@@ -633,21 +839,25 @@ class _AlbumMatchSheet extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(album.title,
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleMedium
-                            ?.copyWith(fontWeight: FontWeight.bold),
-                        overflow: TextOverflow.ellipsis),
-                    Text(album.artist,
-                        style: Theme.of(context).textTheme.bodyMedium,
-                        overflow: TextOverflow.ellipsis),
+                    Text(
+                      album.title,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      album.artist,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                     if (meta.isNotEmpty)
-                      Text(meta,
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(color: scheme.onSurfaceVariant)),
+                      Text(
+                        meta,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -745,8 +955,10 @@ class _AlbumCreateSheetState extends State<_AlbumCreateSheet> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to create album: $e'),
-              backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Failed to create album: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -758,28 +970,38 @@ class _AlbumCreateSheetState extends State<_AlbumCreateSheet> {
   Widget build(BuildContext context) {
     return Padding(
       padding: EdgeInsets.fromLTRB(
-          24, 24, 24, MediaQuery.of(context).viewInsets.bottom + 32),
+        24,
+        24,
+        24,
+        MediaQuery.of(context).viewInsets.bottom + 32,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Create album',
-              style: Theme.of(context).textTheme.titleMedium),
+          Text('Create album', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 4),
-          Text('Fill in the details for this album folder.',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          Text(
+            'Fill in the details for this album folder.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
           const SizedBox(height: 20),
           TextField(
             controller: _titleCtrl,
-            decoration: const InputDecoration(labelText: 'Title *', border: OutlineInputBorder()),
+            decoration: const InputDecoration(
+              labelText: 'Title *',
+              border: OutlineInputBorder(),
+            ),
           ),
           const SizedBox(height: 12),
           TextField(
             controller: _artistCtrl,
-            decoration: const InputDecoration(labelText: 'Artist *', border: OutlineInputBorder()),
+            decoration: const InputDecoration(
+              labelText: 'Artist *',
+              border: OutlineInputBorder(),
+            ),
           ),
           const SizedBox(height: 12),
           Row(
@@ -787,7 +1009,10 @@ class _AlbumCreateSheetState extends State<_AlbumCreateSheet> {
               Expanded(
                 child: TextField(
                   controller: _yearCtrl,
-                  decoration: const InputDecoration(labelText: 'Year', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(
+                    labelText: 'Year',
+                    border: OutlineInputBorder(),
+                  ),
                   keyboardType: TextInputType.number,
                 ),
               ),
@@ -795,7 +1020,10 @@ class _AlbumCreateSheetState extends State<_AlbumCreateSheet> {
               Expanded(
                 child: TextField(
                   controller: _genreCtrl,
-                  decoration: const InputDecoration(labelText: 'Genre', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(
+                    labelText: 'Genre',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
               ),
             ],
@@ -803,7 +1031,10 @@ class _AlbumCreateSheetState extends State<_AlbumCreateSheet> {
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             initialValue: _selectedFormat,
-            decoration: const InputDecoration(labelText: 'Format', border: OutlineInputBorder()),
+            decoration: const InputDecoration(
+              labelText: 'Format',
+              border: OutlineInputBorder(),
+            ),
             items: recordingFormats
                 .map((f) => DropdownMenuItem(value: f, child: Text(f)))
                 .toList(),
@@ -821,7 +1052,8 @@ class _AlbumCreateSheetState extends State<_AlbumCreateSheet> {
               const SizedBox(width: 12),
               Expanded(
                 child: FilledButton(
-                  onPressed: _creating ||
+                  onPressed:
+                      _creating ||
                           _titleCtrl.text.isEmpty ||
                           _artistCtrl.text.isEmpty
                       ? null
@@ -830,7 +1062,8 @@ class _AlbumCreateSheetState extends State<_AlbumCreateSheet> {
                       ? const SizedBox(
                           width: 18,
                           height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2))
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
                       : const Text('Create album'),
                 ),
               ),
@@ -850,9 +1083,9 @@ class _CoverPlaceholder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        color: scheme.surfaceContainerHighest,
-        child: Icon(Icons.album, color: scheme.onSurfaceVariant),
-      );
+    color: scheme.surfaceContainerHighest,
+    child: Icon(Icons.album, color: scheme.onSurfaceVariant),
+  );
 }
 
 class _StatusIcon extends StatelessWidget {
@@ -861,18 +1094,18 @@ class _StatusIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Icon(
-        switch (status) {
-          _Status.pending => Icons.music_note_outlined,
-          _Status.syncing => Icons.sync,
-          _Status.done => Icons.check_circle_outline,
-          _Status.error => Icons.error_outline,
-        },
-        color: switch (status) {
-          _Status.done => Colors.green,
-          _Status.error => Colors.red,
-          _ => null,
-        },
-      );
+    switch (status) {
+      _Status.pending => Icons.music_note_outlined,
+      _Status.syncing => Icons.sync,
+      _Status.done => Icons.check_circle_outline,
+      _Status.error => Icons.error_outline,
+    },
+    color: switch (status) {
+      _Status.done => Colors.green,
+      _Status.error => Colors.red,
+      _ => null,
+    },
+  );
 }
 
 // ── Models ────────────────────────────────────────────────────────────────────
@@ -883,5 +1116,6 @@ class _SyncEntry {
   final File file;
   _Status status;
   String? error;
+  Map<String, dynamic>? cdVerification;
   _SyncEntry({required this.file}) : status = _Status.pending;
 }

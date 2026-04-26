@@ -5,6 +5,7 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
+    Form,
     HTTPException,
     UploadFile,
     status,
@@ -67,6 +68,7 @@ async def add_track(
                 year=body.year,
                 genre=body.genre,
                 mime_type=body.mime_type,
+                source=body.source,
             )
         )
     except SoundNetError as e:
@@ -161,10 +163,13 @@ async def upload_track(
         dict, Security(get_current_oauth_user, scopes=[settings.LIBRARY_WRITE])
     ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
+    source: Annotated[str | None, Form()] = None,
 ) -> dict:
     """
     Mobile upload: client sends audio file → server adds to IPFS + pins + registers.
     The track is immediately pinned so it's available across all devices.
+    Optional `source` form field declares the origin (cd, vinyl, digital_download, …).
+    When source is "cd", the response includes a `cd_verification` object.
     """
     content = await file.read()
     try:
@@ -175,6 +180,7 @@ async def upload_track(
                 content=content,
                 file_size_bytes=len(content),
                 mime_type=file.content_type or "audio/mpeg",
+                source=source,
             )
         )
     except SoundNetError as e:

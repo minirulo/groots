@@ -12,6 +12,8 @@ container.config.from_dict(
         "MONGO_DB": settings.MONGO_DB,
         "IPFS_API_URL": settings.IPFS_API_URL,
         "IPFS_GATEWAY_URL": settings.IPFS_GATEWAY_URL,
+        "DISCOGS_APP_NAME": settings.DISCOGS_APP_NAME,
+        "DISCOGS_USER_TOKEN": settings.DISCOGS_USER_TOKEN,
     }
 )
 container.wire(
@@ -23,6 +25,7 @@ container.wire(
         "groots.entrypoints.api.routes.playlists",
         "groots.entrypoints.api.routes.genres",
         "groots.entrypoints.api.routes.admin",
+        "groots.entrypoints.api.routes.discogs",
     ]
 )
 

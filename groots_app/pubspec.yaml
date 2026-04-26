@@ -35,6 +35,9 @@ dependencies:
   # Bottom sheet
   modal_bottom_sheet: ^3.0.0
 
+  # Audio recording (vinyl ripping)
+  record: ^6.2.0
+
   # Utils
   intl: ^0.20.2
 
