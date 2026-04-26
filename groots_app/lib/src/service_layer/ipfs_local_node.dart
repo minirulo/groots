@@ -53,22 +53,22 @@ class IpfsLocalNode extends GetxService {
     if (Platform.isMacOS) {
       _channel.setMethodCallHandler(_handleNativeCall);
     }
-    _pollTimer = Timer.periodic(
-      const Duration(seconds: 5),
-      (_) async {
-        if (status.value == IpfsNodeStatus.starting ||
-            status.value == IpfsNodeStatus.stopping) {
-          return;
-        }
-        final reachable = await _isApiReachable();
-        if (reachable != isRunning.value) {
-          isRunning.value = reachable;
-          status.value =
-              reachable ? IpfsNodeStatus.running : IpfsNodeStatus.stopped;
-          _log(reachable ? 'node detected as running' : 'node detected as stopped');
-        }
-      },
-    );
+    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+      if (status.value == IpfsNodeStatus.starting ||
+          status.value == IpfsNodeStatus.stopping) {
+        return;
+      }
+      final reachable = await _isApiReachable();
+      if (reachable != isRunning.value) {
+        isRunning.value = reachable;
+        status.value = reachable
+            ? IpfsNodeStatus.running
+            : IpfsNodeStatus.stopped;
+        _log(
+          reachable ? 'node detected as running' : 'node detected as stopped',
+        );
+      }
+    });
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
@@ -120,7 +120,9 @@ class IpfsLocalNode extends GetxService {
   Future<String?> installAsLoginItem() async {
     if (!Platform.isMacOS) return 'Login Items are only supported on macOS.';
     try {
-      final result = await _channel.invokeMapMethod<String, dynamic>('registerLoginItem');
+      final result = await _channel.invokeMapMethod<String, dynamic>(
+        'registerLoginItem',
+      );
       return result?['error'] as String?;
     } on PlatformException catch (e) {
       return e.message;
@@ -132,7 +134,9 @@ class IpfsLocalNode extends GetxService {
   Future<String?> uninstallLoginItem() async {
     if (!Platform.isMacOS) return 'Login Items are only supported on macOS.';
     try {
-      final result = await _channel.invokeMapMethod<String, dynamic>('unregisterLoginItem');
+      final result = await _channel.invokeMapMethod<String, dynamic>(
+        'unregisterLoginItem',
+      );
       return result?['error'] as String?;
     } on PlatformException catch (e) {
       return e.message;
@@ -198,7 +202,9 @@ class IpfsLocalNode extends GetxService {
       req.headers.set('Accept', 'application/json');
       final res = await req.close();
       if (res.statusCode != 200) {
-        _log('connectToCentralNode: peer-id request failed (${res.statusCode})');
+        _log(
+          'connectToCentralNode: peer-id request failed (${res.statusCode})',
+        );
         return;
       }
       final body = await res.transform(utf8.decoder).join();
@@ -236,14 +242,11 @@ class IpfsLocalNode extends GetxService {
 
     _log('starting via XPC (repo → $repoPath)');
 
-    final result = await _channel.invokeMapMethod<String, dynamic>(
-      'start',
-      {
-        'repo_path': repoPath,
-        'swarm_key': swarmKey,
-        'gateway_port': _gatewayPort,
-      },
-    );
+    final result = await _channel.invokeMapMethod<String, dynamic>('start', {
+      'repo_path': repoPath,
+      'swarm_key': swarmKey,
+      'gateway_port': _gatewayPort,
+    });
 
     if (result?['success'] != true) {
       _log('XPC start failed: ${result?['error']}');
@@ -323,22 +326,38 @@ class IpfsLocalNode extends GetxService {
     // First-run: initialize repo, write swarm key, set ports.
     if (!File('$repoPath/config').existsSync()) {
       _log('initializing repo at $repoPath');
-      await Process.run(ipfsBin, ['init', '--profile=server'], environment: env);
+      await Process.run(ipfsBin, [
+        'init',
+        '--profile=server',
+      ], environment: env);
 
       final swarmKey = await rootBundle.loadString('assets/swarm.key');
       File('$repoPath/swarm.key').writeAsStringSync(swarmKey);
 
       // Private network — remove all public bootstrap peers.
-      await Process.run(ipfsBin, ['bootstrap', 'rm', '--all'], environment: env);
+      await Process.run(ipfsBin, [
+        'bootstrap',
+        'rm',
+        '--all',
+      ], environment: env);
 
       // Custom ports to avoid collisions with the Docker dev stack.
-      await Process.run(ipfsBin, ['config', 'Addresses.API', '/ip4/127.0.0.1/tcp/$_apiPort'], environment: env);
-      await Process.run(ipfsBin, ['config', 'Addresses.Gateway', '/ip4/127.0.0.1/tcp/$_gatewayPort'], environment: env);
-      await Process.run(
-        ipfsBin,
-        ['config', '--json', 'Addresses.Swarm', '["/ip4/0.0.0.0/tcp/4101","/ip6/::/tcp/4101"]'],
-        environment: env,
-      );
+      await Process.run(ipfsBin, [
+        'config',
+        'Addresses.API',
+        '/ip4/127.0.0.1/tcp/$_apiPort',
+      ], environment: env);
+      await Process.run(ipfsBin, [
+        'config',
+        'Addresses.Gateway',
+        '/ip4/127.0.0.1/tcp/$_gatewayPort',
+      ], environment: env);
+      await Process.run(ipfsBin, [
+        'config',
+        '--json',
+        'Addresses.Swarm',
+        '["/ip4/0.0.0.0/tcp/4101","/ip6/::/tcp/4101"]',
+      ], environment: env);
     }
 
     // Applied every launch — idempotent. Kubo 0.34+ defaults are incompatible
@@ -349,23 +368,75 @@ class IpfsLocalNode extends GetxService {
     // 10.0.0.0/8, which covers the Docker node at 10.10.10.x.
     // Kubo 0.34+ / migration-introduced defaults incompatible with private networks.
     // All applied every launch so existing repos are fixed without re-init.
-    await Process.run(ipfsBin, ['config', '--json', 'AutoTLS.Enabled', 'false'], environment: env);
-    await Process.run(ipfsBin, ['config', '--json', 'AutoConf.Enabled', 'false'], environment: env);
+    await Process.run(ipfsBin, [
+      'config',
+      '--json',
+      'AutoTLS.Enabled',
+      'false',
+    ], environment: env);
+    await Process.run(ipfsBin, [
+      'config',
+      '--json',
+      'AutoConf.Enabled',
+      'false',
+    ], environment: env);
     // Repo migration to v18 writes 'auto' placeholders that require AutoConf.
     // For a private swarm none of these are needed.
-    await Process.run(ipfsBin, ['config', '--json', 'Bootstrap', '[]'], environment: env);
-    await Process.run(ipfsBin, ['config', '--json', 'Routing.DelegatedRouters', '[]'], environment: env);
-    await Process.run(ipfsBin, ['config', '--json', 'Ipns.DelegatedPublishers', '[]'], environment: env);
-    await Process.run(ipfsBin, ['config', '--json', 'DNS.Resolvers', '{}'], environment: env);
-    await Process.run(ipfsBin, ['config', '--json', 'Swarm.Transports.Network.Websocket', 'false'], environment: env);
-    await Process.run(ipfsBin, ['config', 'Routing.Type', 'dht'], environment: env);
-    await Process.run(ipfsBin, ['config', '--json', 'Swarm.AddrFilters', '[]'], environment: env);
+    await Process.run(ipfsBin, [
+      'config',
+      '--json',
+      'Bootstrap',
+      '[]',
+    ], environment: env);
+    await Process.run(ipfsBin, [
+      'config',
+      '--json',
+      'Routing.DelegatedRouters',
+      '[]',
+    ], environment: env);
+    await Process.run(ipfsBin, [
+      'config',
+      '--json',
+      'Ipns.DelegatedPublishers',
+      '[]',
+    ], environment: env);
+    await Process.run(ipfsBin, [
+      'config',
+      '--json',
+      'DNS.Resolvers',
+      '{}',
+    ], environment: env);
+    await Process.run(ipfsBin, [
+      'config',
+      '--json',
+      'Swarm.Transports.Network.Websocket',
+      'false',
+    ], environment: env);
+    await Process.run(ipfsBin, [
+      'config',
+      'Routing.Type',
+      'dht',
+    ], environment: env);
+    await Process.run(ipfsBin, [
+      'config',
+      '--json',
+      'Swarm.AddrFilters',
+      '[]',
+    ], environment: env);
 
     _log('starting daemon (repo → $repoPath, bin → $ipfsBin)');
-    _daemonProcess = await Process.start(ipfsBin, ['daemon', '--enable-gc', '--migrate'], environment: env);
+    _daemonProcess = await Process.start(ipfsBin, [
+      'daemon',
+      '--enable-gc',
+      '--migrate',
+    ], environment: env);
 
-    _daemonProcess!.stdout.transform(utf8.decoder).listen((s) => _log('kubo: ${s.trim()}'));
-    _daemonProcess!.stderr.transform(utf8.decoder).listen((s) => _log('kubo err: ${s.trim()}'));
+    _daemonProcess!.stdout
+        .transform(utf8.decoder)
+        .listen((s) => _log('kubo: ${s.trim()}'));
+    _daemonProcess!.stderr
+        .transform(utf8.decoder)
+        .listen((s) => _log('kubo err: ${s.trim()}'));
 
     bool processExited = false;
     _daemonProcess!.exitCode.then((code) {

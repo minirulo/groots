@@ -151,10 +151,7 @@ class _CoverEnhanceScreenState extends State<_CoverEnhanceScreen> {
     );
 
     // 3×3 unsharp/sharpen kernel
-    out = img.convolution(
-      out,
-      filter: [0, -1, 0, -1, 5, -1, 0, -1, 0],
-    );
+    out = img.convolution(out, filter: [0, -1, 0, -1, 5, -1, 0, -1, 0]);
 
     return Uint8List.fromList(img.encodeJpg(out, quality: 92));
   }

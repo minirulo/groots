@@ -53,18 +53,23 @@ class AppBinding extends Bindings {
       libraryHandler: LibraryHandler(provider: libraryProvider),
       albumHandler: AlbumHandler(provider: albumProvider),
       playlistHandler: PlaylistHandler(provider: playlistProvider),
-      adminHandler: AdminHandler(adminProvider: adminProvider, albumProvider: albumProvider),
+      adminHandler: AdminHandler(
+        adminProvider: adminProvider,
+        albumProvider: albumProvider,
+      ),
     );
     Get.put(bus);
 
     // Register the local IPFS node — started lazily from the dev entry point.
     Get.put(IpfsLocalNode(), permanent: true);
 
-    Get.put(AuthenticationBloc(
-      bus: bus,
-      authProvider: authProvider,
-      storage: storage,
-    ));
+    Get.put(
+      AuthenticationBloc(
+        bus: bus,
+        authProvider: authProvider,
+        storage: storage,
+      ),
+    );
 
     Get.put(LibraryBloc(bus: bus));
     Get.put(AlbumBloc(bus: bus));

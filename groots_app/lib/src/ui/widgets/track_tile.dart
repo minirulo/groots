@@ -69,8 +69,10 @@ class TrackTile extends StatelessWidget {
           : Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(track.durationFormatted,
-                    style: Theme.of(context).textTheme.bodySmall),
+                Text(
+                  track.durationFormatted,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
                 const SizedBox(width: 4),
                 if (!track.pinned)
                   IconButton(
@@ -214,17 +216,17 @@ class TrackTile extends StatelessWidget {
     final player = Get.find<PlayerService>();
     final url = Get.find<IpfsLocalNode>().streamUrl(track.cid, track.mimeType);
     player.addToQueue(track, url);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('"${track.title}" added to queue')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('"${track.title}" added to queue')));
   }
 
   void _showAddToPlaylistSheet(BuildContext context) {
     final state = context.read<PlaylistBloc>().state;
     if (state.playlists.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Create a playlist first.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Create a playlist first.')));
       return;
     }
     showModalBottomSheet(
@@ -232,22 +234,31 @@ class TrackTile extends StatelessWidget {
       builder: (ctx) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const ListTile(title: Text('Add to Playlist', style: TextStyle(fontWeight: FontWeight.bold))),
+          const ListTile(
+            title: Text(
+              'Add to Playlist',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
           const Divider(height: 1),
-          ...state.playlists.map((p) => ListTile(
-                leading: const Icon(Icons.queue_music),
-                title: Text(p.name),
-                onTap: () {
-                  context.read<PlaylistBloc>().add(PlaylistAddTrackRequested(
+          ...state.playlists.map(
+            (p) => ListTile(
+              leading: const Icon(Icons.queue_music),
+              title: Text(p.name),
+              onTap: () {
+                context.read<PlaylistBloc>().add(
+                  PlaylistAddTrackRequested(
                     playlistId: p.id,
                     trackId: track.id,
-                  ));
-                  Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Added to "${p.name}"')),
-                  );
-                },
-              )),
+                  ),
+                );
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text('Added to "${p.name}"')));
+              },
+            ),
+          ),
           const SizedBox(height: 8),
         ],
       ),
@@ -257,9 +268,9 @@ class TrackTile extends StatelessWidget {
   void _showAssignToAlbumSheet(BuildContext context) {
     final state = context.read<AlbumBloc>().state;
     if (state.status != AlbumStatus.loaded || state.albums.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Create an album first.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Create an album first.')));
       return;
     }
     showModalBottomSheet(
@@ -267,23 +278,29 @@ class TrackTile extends StatelessWidget {
       builder: (ctx) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const ListTile(title: Text('Assign to Album', style: TextStyle(fontWeight: FontWeight.bold))),
+          const ListTile(
+            title: Text(
+              'Assign to Album',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
           const Divider(height: 1),
-          ...state.albums.map((a) => ListTile(
-                leading: const Icon(Icons.album),
-                title: Text(a.title),
-                subtitle: Text(a.artist),
-                onTap: () {
-                  context.read<AlbumBloc>().add(AlbumTrackAssignRequested(
-                    albumId: a.id,
-                    trackId: track.id,
-                  ));
-                  Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Assigned to "${a.title}"')),
-                  );
-                },
-              )),
+          ...state.albums.map(
+            (a) => ListTile(
+              leading: const Icon(Icons.album),
+              title: Text(a.title),
+              subtitle: Text(a.artist),
+              onTap: () {
+                context.read<AlbumBloc>().add(
+                  AlbumTrackAssignRequested(albumId: a.id, trackId: track.id),
+                );
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Assigned to "${a.title}"')),
+                );
+              },
+            ),
+          ),
           const SizedBox(height: 8),
         ],
       ),
@@ -291,4 +308,11 @@ class TrackTile extends StatelessWidget {
   }
 }
 
-enum _TrackAction { play, pin, delete, addToPlaylist, assignToAlbum, addToQueue }
+enum _TrackAction {
+  play,
+  pin,
+  delete,
+  addToPlaylist,
+  assignToAlbum,
+  addToQueue,
+}

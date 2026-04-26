@@ -34,12 +34,18 @@ class PlayerBar extends StatelessWidget {
     if (albumId == null) return null;
     final albumBloc = Get.find<AlbumBloc>();
     if (albumBloc.state.status != AlbumStatus.loaded) return null;
-    final album = albumBloc.state.albums.where((a) => a.id == albumId).firstOrNull;
+    final album = albumBloc.state.albums
+        .where((a) => a.id == albumId)
+        .firstOrNull;
     if (album?.coverCid == null) return null;
     return Get.find<AlbumProvider>().coverUrl(album!.coverCid!);
   }
 
-  void _openFullPlayer(BuildContext context, PlayerService player, String? coverUrl) {
+  void _openFullPlayer(
+    BuildContext context,
+    PlayerService player,
+    String? coverUrl,
+  ) {
     showCupertinoModalBottomSheet(
       context: context,
       expand: true,
@@ -83,8 +89,12 @@ class _MiniPlayer extends StatelessWidget {
           ),
         Container(
           decoration: BoxDecoration(
-            color: coverUrl == null ? scheme.surfaceContainerHigh : Colors.transparent,
-            border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
+            color: coverUrl == null
+                ? scheme.surfaceContainerHigh
+                : Colors.transparent,
+            border: Border(
+              top: BorderSide(color: Theme.of(context).dividerColor),
+            ),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           child: Row(
@@ -99,10 +109,9 @@ class _MiniPlayer extends StatelessWidget {
                     Text(
                       track.title,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodyMedium
-                          ?.copyWith(fontWeight: FontWeight.bold),
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     Text(
                       track.artist,
@@ -112,21 +121,29 @@ class _MiniPlayer extends StatelessWidget {
                   ],
                 ),
               ),
-              Obx(() => IconButton(
-                    icon: const Icon(Icons.skip_previous),
-                    onPressed: player.hasPrevious.value ? player.previous : null,
-                    visualDensity: VisualDensity.compact,
-                  )),
-              Obx(() => IconButton(
-                    icon: Icon(player.isPlaying.value ? Icons.pause : Icons.play_arrow),
-                    onPressed: player.togglePause,
-                    visualDensity: VisualDensity.compact,
-                  )),
-              Obx(() => IconButton(
-                    icon: const Icon(Icons.skip_next),
-                    onPressed: player.hasNext.value ? player.next : null,
-                    visualDensity: VisualDensity.compact,
-                  )),
+              Obx(
+                () => IconButton(
+                  icon: const Icon(Icons.skip_previous),
+                  onPressed: player.hasPrevious.value ? player.previous : null,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+              Obx(
+                () => IconButton(
+                  icon: Icon(
+                    player.isPlaying.value ? Icons.pause : Icons.play_arrow,
+                  ),
+                  onPressed: player.togglePause,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+              Obx(
+                () => IconButton(
+                  icon: const Icon(Icons.skip_next),
+                  onPressed: player.hasNext.value ? player.next : null,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
             ],
           ),
         ),
@@ -228,30 +245,32 @@ class _FullPlayerSheetState extends State<_FullPlayerSheet> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Obx(() => IconButton(
-                                icon: Icon(
-                                  Icons.repeat_one,
-                                  color: player.isRepeating.value
-                                      ? Colors.white
-                                      : Colors.white38,
-                                ),
-                                tooltip: player.isRepeating.value
-                                    ? 'Repeat off'
-                                    : 'Repeat track',
-                                onPressed: player.toggleRepeat,
-                              )),
+                          Obx(
+                            () => IconButton(
+                              icon: Icon(
+                                Icons.repeat_one,
+                                color: player.isRepeating.value
+                                    ? Colors.white
+                                    : Colors.white38,
+                              ),
+                              tooltip: player.isRepeating.value
+                                  ? 'Repeat off'
+                                  : 'Repeat track',
+                              onPressed: player.toggleRepeat,
+                            ),
+                          ),
                           IconButton(
-                            icon: const Icon(Icons.stop_circle_outlined,
-                                color: Colors.white54),
+                            icon: const Icon(
+                              Icons.stop_circle_outlined,
+                              color: Colors.white54,
+                            ),
                             tooltip: 'Stop & clear queue',
                             onPressed: player.stop,
                           ),
                           IconButton(
                             icon: Icon(
                               Icons.queue_music,
-                              color: _showQueue
-                                  ? Colors.white
-                                  : Colors.white38,
+                              color: _showQueue ? Colors.white : Colors.white38,
                             ),
                             tooltip: _showQueue ? 'Now Playing' : 'Queue',
                             onPressed: () =>
@@ -365,8 +384,9 @@ class _PlayerContent extends StatelessWidget {
           Obx(() {
             final pos = player.position.value;
             final dur = player.duration.value;
-            final total =
-                dur.inMilliseconds > 0 ? dur.inMilliseconds.toDouble() : 1.0;
+            final total = dur.inMilliseconds > 0
+                ? dur.inMilliseconds.toDouble()
+                : 1.0;
             return Column(
               children: [
                 SliderTheme(
@@ -388,12 +408,20 @@ class _PlayerContent extends StatelessWidget {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(fmt(pos),
-                          style: const TextStyle(
-                              color: Colors.white70, fontSize: 12)),
-                      Text(fmt(dur),
-                          style: const TextStyle(
-                              color: Colors.white70, fontSize: 12)),
+                      Text(
+                        fmt(pos),
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
+                      ),
+                      Text(
+                        fmt(dur),
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -405,38 +433,42 @@ class _PlayerContent extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              Obx(() => IconButton(
-                    iconSize: 40,
-                    color: player.hasPrevious.value
-                        ? Colors.white
-                        : Colors.white30,
-                    icon: const Icon(Icons.skip_previous_rounded),
-                    onPressed:
-                        player.hasPrevious.value ? player.previous : null,
-                  )),
-              Obx(() => Container(
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
+              Obx(
+                () => IconButton(
+                  iconSize: 40,
+                  color: player.hasPrevious.value
+                      ? Colors.white
+                      : Colors.white30,
+                  icon: const Icon(Icons.skip_previous_rounded),
+                  onPressed: player.hasPrevious.value ? player.previous : null,
+                ),
+              ),
+              Obx(
+                () => Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    iconSize: 44,
+                    color: Colors.black,
+                    icon: Icon(
+                      player.isPlaying.value
+                          ? Icons.pause_rounded
+                          : Icons.play_arrow_rounded,
                     ),
-                    child: IconButton(
-                      iconSize: 44,
-                      color: Colors.black,
-                      icon: Icon(
-                        player.isPlaying.value
-                            ? Icons.pause_rounded
-                            : Icons.play_arrow_rounded,
-                      ),
-                      onPressed: player.togglePause,
-                    ),
-                  )),
-              Obx(() => IconButton(
-                    iconSize: 40,
-                    color:
-                        player.hasNext.value ? Colors.white : Colors.white30,
-                    icon: const Icon(Icons.skip_next_rounded),
-                    onPressed: player.hasNext.value ? player.next : null,
-                  )),
+                    onPressed: player.togglePause,
+                  ),
+                ),
+              ),
+              Obx(
+                () => IconButton(
+                  iconSize: 40,
+                  color: player.hasNext.value ? Colors.white : Colors.white30,
+                  icon: const Icon(Icons.skip_next_rounded),
+                  onPressed: player.hasNext.value ? player.next : null,
+                ),
+              ),
             ],
           ),
         ],

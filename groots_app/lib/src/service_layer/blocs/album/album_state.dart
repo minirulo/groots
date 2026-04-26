@@ -20,11 +20,10 @@ class AlbumState {
     List<Album>? albums,
     List<String>? genres,
     String? error,
-  }) =>
-      AlbumState(
-        status: status ?? this.status,
-        albums: albums ?? this.albums,
-        genres: genres ?? this.genres,
-        error: error ?? this.error,
-      );
+  }) => AlbumState(
+    status: status ?? this.status,
+    albums: albums ?? this.albums,
+    genres: genres ?? this.genres,
+    error: error ?? this.error,
+  );
 }

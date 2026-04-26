@@ -46,8 +46,8 @@ class SoundNetAudioHandler extends BaseAudioHandler with SeekHandler {
 
   Track? get currentTrack =>
       (_currentIndex >= 0 && _currentIndex < _queue.length)
-          ? _queue[_currentIndex].track
-          : null;
+      ? _queue[_currentIndex].track
+      : null;
 
   bool get hasNext => _currentIndex < _queue.length - 1;
   bool get hasPrevious => _currentIndex > 0;
@@ -77,13 +77,15 @@ class SoundNetAudioHandler extends BaseAudioHandler with SeekHandler {
     if (_currentIndex < 0 || _currentIndex >= _queue.length) return;
     final item = _queue[_currentIndex];
     final t = item.track;
-    mediaItem.add(MediaItem(
-      id: t.id,
-      title: t.title,
-      artist: t.artist,
-      album: t.album,
-      duration: Duration(seconds: t.durationSeconds),
-    ));
+    mediaItem.add(
+      MediaItem(
+        id: t.id,
+        title: t.title,
+        artist: t.artist,
+        album: t.album,
+        duration: Duration(seconds: t.durationSeconds),
+      ),
+    );
     try {
       await _player.setUrl(item.url);
       await _player.play();
@@ -97,14 +99,18 @@ class SoundNetAudioHandler extends BaseAudioHandler with SeekHandler {
         await _player.play();
         Get.find<IpfsLocalNode>().pinAdd(t.cid).ignore();
       } on MissingPluginException catch (e) {
-        debugPrint('[AudioHandler] channel still broken after rebuild: $e — full restart required');
+        debugPrint(
+          '[AudioHandler] channel still broken after rebuild: $e — full restart required',
+        );
       } catch (e) {
         debugPrint('[AudioHandler] playback error after rebuild: $e');
       }
     } catch (e) {
       // Local IPFS gateway couldn't serve the CID (not yet pinned locally).
       // Fall back to the central gateway URL.
-      debugPrint('[AudioHandler] local URL failed ($e), falling back to central gateway');
+      debugPrint(
+        '[AudioHandler] local URL failed ($e), falling back to central gateway',
+      );
       final fallbackUrl = Environment().config.ipfsStreamUrl(t.cid, t.mimeType);
       try {
         await _player.setUrl(fallbackUrl);
@@ -126,7 +132,8 @@ class SoundNetAudioHandler extends BaseAudioHandler with SeekHandler {
     });
     _player.durationStream.listen((d) {
       final current = mediaItem.value;
-      if (current != null && d != null) mediaItem.add(current.copyWith(duration: d));
+      if (current != null && d != null)
+        mediaItem.add(current.copyWith(duration: d));
     });
   }
 
@@ -190,28 +197,30 @@ class SoundNetAudioHandler extends BaseAudioHandler with SeekHandler {
   void dispose() => _player.dispose();
 
   void _broadcastState() {
-    playbackState.add(PlaybackState(
-      controls: [
-        MediaControl.skipToPrevious,
-        _player.playing ? MediaControl.pause : MediaControl.play,
-        MediaControl.skipToNext,
-        MediaControl.stop,
-      ],
-      systemActions: const {
-        MediaAction.seek,
-        MediaAction.seekForward,
-        MediaAction.seekBackward,
-      },
-      androidCompactActionIndices: const [0, 1, 2],
-      playing: _player.playing,
-      updatePosition: _player.position,
-      processingState: const {
-        ProcessingState.idle: AudioProcessingState.idle,
-        ProcessingState.loading: AudioProcessingState.loading,
-        ProcessingState.buffering: AudioProcessingState.buffering,
-        ProcessingState.ready: AudioProcessingState.ready,
-        ProcessingState.completed: AudioProcessingState.completed,
-      }[_player.processingState]!,
-    ));
+    playbackState.add(
+      PlaybackState(
+        controls: [
+          MediaControl.skipToPrevious,
+          _player.playing ? MediaControl.pause : MediaControl.play,
+          MediaControl.skipToNext,
+          MediaControl.stop,
+        ],
+        systemActions: const {
+          MediaAction.seek,
+          MediaAction.seekForward,
+          MediaAction.seekBackward,
+        },
+        androidCompactActionIndices: const [0, 1, 2],
+        playing: _player.playing,
+        updatePosition: _player.position,
+        processingState: const {
+          ProcessingState.idle: AudioProcessingState.idle,
+          ProcessingState.loading: AudioProcessingState.loading,
+          ProcessingState.buffering: AudioProcessingState.buffering,
+          ProcessingState.ready: AudioProcessingState.ready,
+          ProcessingState.completed: AudioProcessingState.completed,
+        }[_player.processingState]!,
+      ),
+    );
   }
 }

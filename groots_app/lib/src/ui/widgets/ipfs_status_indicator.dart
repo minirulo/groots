@@ -15,13 +15,15 @@ class IpfsStatusIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (kIsWeb || (!Platform.isMacOS && !Platform.isLinux)) return const SizedBox.shrink();
+    if (kIsWeb || (!Platform.isMacOS && !Platform.isLinux))
+      return const SizedBox.shrink();
 
     final node = Get.find<IpfsLocalNode>();
 
     return Obx(() {
       final nodeStatus = node.status.value;
-      final busy = nodeStatus == IpfsNodeStatus.starting ||
+      final busy =
+          nodeStatus == IpfsNodeStatus.starting ||
           nodeStatus == IpfsNodeStatus.stopping;
 
       final Color dotColor;
@@ -89,10 +91,9 @@ class IpfsStatusIndicator extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withValues(alpha: busy ? 0.5 : 0.8),
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withValues(alpha: busy ? 0.5 : 0.8),
                     letterSpacing: 0.5,
                   ),
                 ),

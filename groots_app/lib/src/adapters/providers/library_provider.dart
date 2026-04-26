@@ -44,9 +44,14 @@ class LibraryProvider {
     String? source,
   }) async {
     final token = await _storage.getToken();
-    final req = http.MultipartRequest('POST', Uri.parse('$_base/library/upload'));
+    final req = http.MultipartRequest(
+      'POST',
+      Uri.parse('$_base/library/upload'),
+    );
     if (token != null) req.headers['Authorization'] = 'Bearer $token';
-    req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
+    req.files.add(
+      http.MultipartFile.fromBytes('file', bytes, filename: filename),
+    );
     if (source != null) req.fields['source'] = source;
     final streamed = await req.send();
     final body = await streamed.stream.bytesToString();
@@ -78,9 +83,14 @@ class LibraryProvider {
     required String filename,
   }) async {
     final token = await _storage.getToken();
-    final req = http.MultipartRequest('POST', Uri.parse('$_base/library/extract-cover'));
+    final req = http.MultipartRequest(
+      'POST',
+      Uri.parse('$_base/library/extract-cover'),
+    );
     if (token != null) req.headers['Authorization'] = 'Bearer $token';
-    req.files.add(http.MultipartFile.fromBytes('file', headBytes, filename: filename));
+    req.files.add(
+      http.MultipartFile.fromBytes('file', headBytes, filename: filename),
+    );
     final streamed = await req.send();
     if (streamed.statusCode == 204) return null;
     final body = await streamed.stream.bytesToString();

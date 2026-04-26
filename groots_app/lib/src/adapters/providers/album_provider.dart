@@ -55,7 +55,11 @@ class AlbumProvider {
     if (res.statusCode != 204) throw Exception(res.body);
   }
 
-  Future<void> assignTrack(String albumId, String trackId, {int? trackNumber}) async {
+  Future<void> assignTrack(
+    String albumId,
+    String trackId, {
+    int? trackNumber,
+  }) async {
     final res = await _client.post(
       Uri.parse('$_base/albums/$albumId/tracks'),
       headers: {'Content-Type': 'application/json'},
@@ -65,14 +69,16 @@ class AlbumProvider {
   }
 
   Future<void> unassignTrack(String albumId, String trackId) async {
-    final res =
-        await _client.delete(Uri.parse('$_base/albums/$albumId/tracks/$trackId'));
+    final res = await _client.delete(
+      Uri.parse('$_base/albums/$albumId/tracks/$trackId'),
+    );
     if (res.statusCode != 200) throw Exception(res.body);
   }
 
   Future<List<Album>> searchAlbums(String query) async {
-    final uri = Uri.parse('$_base/albums/search')
-        .replace(queryParameters: {'q': query});
+    final uri = Uri.parse(
+      '$_base/albums/search',
+    ).replace(queryParameters: {'q': query});
     final res = await _client.get(uri);
     if (res.statusCode != 200) throw Exception(res.body);
     final list = jsonDecode(res.body) as List;
@@ -98,11 +104,9 @@ class AlbumProvider {
       'POST',
       Uri.parse('$_base/albums/$albumId/cover'),
     );
-    req.files.add(http.MultipartFile.fromBytes(
-      'file',
-      bytes,
-      filename: 'cover.$ext',
-    ));
+    req.files.add(
+      http.MultipartFile.fromBytes('file', bytes, filename: 'cover.$ext'),
+    );
     final streamed = await _client.send(req);
     final body = await streamed.stream.bytesToString();
     if (streamed.statusCode != 200) throw Exception(body);
