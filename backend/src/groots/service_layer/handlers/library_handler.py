@@ -248,7 +248,6 @@ async def handle_upload_track(cmd: UploadTrack, uow: AbstractUnitOfWork) -> dict
         cd_verification: dict | None = None
         if cmd.source == "cd":
             from groots.adapters.impl.cd_verifier import CdVerifier
-
             cd_verification = CdVerifier().verify(meta).to_dict()
 
         # ── 5. Persist fingerprint (if we got one and it's genuinely new) ────
