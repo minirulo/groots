@@ -311,7 +311,9 @@ async def handle_pin_track(cmd: PinTrack, uow: AbstractUnitOfWork) -> None:
             raise TrackNotOwnedByUser()
 
         await uow.ipfs.pin_add(cmd.cid)
-        await uow.ipfs.mfs_copy(cmd.cid, f"{track.title}{_ext_for_mime(track.mime_type)}")
+        await uow.ipfs.mfs_copy(
+            cmd.cid, f"{track.title}{_ext_for_mime(track.mime_type)}"
+        )
 
         track.pinned = True
         await uow.tracks.update(track)
