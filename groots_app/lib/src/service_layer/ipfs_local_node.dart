@@ -13,15 +13,15 @@ import '../config/environment.dart';
 /// Status of the local IPFS node lifecycle.
 enum IpfsNodeStatus { stopped, starting, running, stopping }
 
-/// Manages a local Kubo (go-ipfs) daemon on macOS via the KuboHelper XPC
-/// service bundled inside the app.
+/// Manages a local Kubo (go-ipfs) daemon.
 ///
-/// All process management (init, configure, spawn, stop) is delegated to the
-/// XPC service through the "groots/kubo" MethodChannel. This file only
-/// handles:
-///   • resolving the repo path and reading the swarm key asset
-///   • polling the Kubo HTTP API for readiness after start
-///   • building stream / cover-art URLs for the player
+/// On macOS, process management is delegated to the KuboHelper XPC service
+/// via the "groots/kubo" MethodChannel.
+///
+/// On Linux, the Kubo binary is spawned directly as a child process. The
+/// binary is resolved from (in order):
+///   1. Alongside the app executable (bundled).
+///   2. System PATH (`ipfs`).
 ///
 /// Ports used (chosen to avoid collision with the Docker dev stack):
 ///   API     → 127.0.0.1:5101
@@ -37,24 +37,25 @@ class IpfsLocalNode extends GetxService {
   final Rx<IpfsNodeStatus> status = IpfsNodeStatus.stopped.obs;
 
   Timer? _pollTimer;
+  Process? _daemonProcess;
 
   String get _apiUrl => 'http://127.0.0.1:$_apiPort';
   String get _gatewayUrl => 'http://127.0.0.1:$_gatewayPort';
+
+  static bool get _supported => Platform.isMacOS || Platform.isLinux;
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   @override
   void onInit() {
     super.onInit();
-    if (!Platform.isMacOS) return;
-    // Allow native side (dock menu) to trigger start/stop on the Dart service.
-    _channel.setMethodCallHandler(_handleNativeCall);
-    // Poll daemon reachability every 5 s to keep [isRunning] in sync even if
-    // the process is started/stopped outside of this service (e.g. dock menu).
+    if (!_supported) return;
+    if (Platform.isMacOS) {
+      _channel.setMethodCallHandler(_handleNativeCall);
+    }
     _pollTimer = Timer.periodic(
       const Duration(seconds: 5),
       (_) async {
-        // Only probe when not in the middle of a transition.
         if (status.value == IpfsNodeStatus.starting ||
             status.value == IpfsNodeStatus.stopping) {
           return;
@@ -73,52 +74,29 @@ class IpfsLocalNode extends GetxService {
   // ── Public API ────────────────────────────────────────────────────────────
 
   /// Start the local Kubo daemon. Idempotent — safe to call if already running.
-  /// No-op on non-macOS platforms (XPC helper is macOS-only).
   Future<void> start() async {
-    if (!Platform.isMacOS) return;
+    if (!_supported) return;
     if (isRunning.value || status.value == IpfsNodeStatus.starting) return;
 
     status.value = IpfsNodeStatus.starting;
 
-    final repoPath = await _resolveRepoPath();
-    final swarmKey = await rootBundle.loadString('assets/swarm.key');
-
-    _log('starting via XPC (repo → $repoPath)');
-
-    final result = await _channel.invokeMapMethod<String, dynamic>(
-      'start',
-      {
-        'repo_path': repoPath,
-        'swarm_key': swarmKey,
-        'gateway_port': _gatewayPort,
-      },
-    );
-
-    if (result?['success'] != true) {
-      _log('XPC start failed: ${result?['error']}');
-      status.value = IpfsNodeStatus.stopped;
-      return;
+    if (Platform.isLinux) {
+      await _startLinux();
+    } else {
+      await _startMacOS();
     }
-
-    await _waitUntilReady();
-    isRunning.value = true;
-    status.value = IpfsNodeStatus.running;
-    _log('local node ready — gateway $_gatewayUrl');
-
-    // Connect to the central cluster node regardless of how start() was triggered
-    // (launch callback, dock menu, or status indicator tap).
-    await connectToCentralNode();
   }
 
   /// Gracefully stop the daemon.
   Future<void> stop() async {
-    if (!Platform.isMacOS) return;
+    if (!_supported) return;
     if (!isRunning.value || status.value == IpfsNodeStatus.stopping) return;
     status.value = IpfsNodeStatus.stopping;
-    await _channel.invokeMethod<void>('stop');
-    isRunning.value = false;
-    status.value = IpfsNodeStatus.stopped;
-    _log('daemon stopped');
+    if (Platform.isLinux) {
+      await _stopLinux();
+    } else {
+      await _stopMacOS();
+    }
   }
 
   /// Returns a streaming URL for [cid].
@@ -250,9 +228,43 @@ class IpfsLocalNode extends GetxService {
     super.onClose();
   }
 
-  // ── Private helpers ───────────────────────────────────────────────────────
+  // ── macOS (XPC) ───────────────────────────────────────────────────────────
 
-  /// Handles method calls initiated from the native side (e.g. dock menu).
+  Future<void> _startMacOS() async {
+    final repoPath = await _resolveRepoPath();
+    final swarmKey = await rootBundle.loadString('assets/swarm.key');
+
+    _log('starting via XPC (repo → $repoPath)');
+
+    final result = await _channel.invokeMapMethod<String, dynamic>(
+      'start',
+      {
+        'repo_path': repoPath,
+        'swarm_key': swarmKey,
+        'gateway_port': _gatewayPort,
+      },
+    );
+
+    if (result?['success'] != true) {
+      _log('XPC start failed: ${result?['error']}');
+      status.value = IpfsNodeStatus.stopped;
+      return;
+    }
+
+    await _waitUntilReady();
+    isRunning.value = true;
+    status.value = IpfsNodeStatus.running;
+    _log('local node ready — gateway $_gatewayUrl');
+    await connectToCentralNode();
+  }
+
+  Future<void> _stopMacOS() async {
+    await _channel.invokeMethod<void>('stop');
+    isRunning.value = false;
+    status.value = IpfsNodeStatus.stopped;
+    _log('daemon stopped');
+  }
+
   Future<dynamic> _handleNativeCall(MethodCall call) async {
     switch (call.method) {
       case 'startFromNative':
@@ -266,6 +278,140 @@ class IpfsLocalNode extends GetxService {
         );
     }
   }
+
+  // ── Linux (subprocess) ────────────────────────────────────────────────────
+
+  Future<void> _startLinux() async {
+    final ipfsBin = await _resolveIpfsBinary();
+    if (ipfsBin == null) {
+      _log('ipfs binary not found — place kubo binary at linux/bin/ipfs');
+      status.value = IpfsNodeStatus.stopped;
+      return;
+    }
+
+    final repoPath = await _resolveRepoPath();
+    final env = {'IPFS_PATH': repoPath};
+
+    // Shut down any daemon left over from a previous session (hot restart,
+    // crash) that still holds the port. Using the API is cleaner than kill.
+    if (await _isApiReachable()) {
+      _log('stale daemon detected on port $_apiPort — sending shutdown');
+      final client = HttpClient();
+      try {
+        final req = await client.postUrl(Uri.parse('$_apiUrl/api/v0/shutdown'));
+        final res = await req.close();
+        await res.drain<void>();
+      } catch (_) {
+      } finally {
+        client.close();
+      }
+      // Wait for the port to be released before proceeding.
+      const maxWait = Duration(seconds: 10);
+      final deadline = DateTime.now().add(maxWait);
+      while (DateTime.now().isBefore(deadline) && await _isApiReachable()) {
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      }
+    }
+
+    // Remove stale lock left by a previous crash so the daemon can start.
+    final lockFile = File('$repoPath/repo.lock');
+    if (lockFile.existsSync()) {
+      _log('removing stale repo.lock');
+      lockFile.deleteSync();
+    }
+
+    // First-run: initialize repo, write swarm key, set ports.
+    if (!File('$repoPath/config').existsSync()) {
+      _log('initializing repo at $repoPath');
+      await Process.run(ipfsBin, ['init', '--profile=server'], environment: env);
+
+      final swarmKey = await rootBundle.loadString('assets/swarm.key');
+      File('$repoPath/swarm.key').writeAsStringSync(swarmKey);
+
+      // Private network — remove all public bootstrap peers.
+      await Process.run(ipfsBin, ['bootstrap', 'rm', '--all'], environment: env);
+
+      // Custom ports to avoid collisions with the Docker dev stack.
+      await Process.run(ipfsBin, ['config', 'Addresses.API', '/ip4/127.0.0.1/tcp/$_apiPort'], environment: env);
+      await Process.run(ipfsBin, ['config', 'Addresses.Gateway', '/ip4/127.0.0.1/tcp/$_gatewayPort'], environment: env);
+      await Process.run(
+        ipfsBin,
+        ['config', '--json', 'Addresses.Swarm', '["/ip4/0.0.0.0/tcp/4101","/ip6/::/tcp/4101"]'],
+        environment: env,
+      );
+    }
+
+    // Applied every launch — idempotent. Kubo 0.34+ defaults are incompatible
+    // with swarm.key private networks: AutoTLS connection-gates peers without
+    // ACME certs (blocks the Docker node), Websocket conflicts with PNET,
+    // and Routing.Type=auto falls back to dht anyway but logs errors.
+    // AddrFilters: --profile=server blocks all RFC-1918 ranges including
+    // 10.0.0.0/8, which covers the Docker node at 10.10.10.x.
+    // Kubo 0.34+ / migration-introduced defaults incompatible with private networks.
+    // All applied every launch so existing repos are fixed without re-init.
+    await Process.run(ipfsBin, ['config', '--json', 'AutoTLS.Enabled', 'false'], environment: env);
+    await Process.run(ipfsBin, ['config', '--json', 'AutoConf.Enabled', 'false'], environment: env);
+    // Repo migration to v18 writes 'auto' placeholders that require AutoConf.
+    // For a private swarm none of these are needed.
+    await Process.run(ipfsBin, ['config', '--json', 'Bootstrap', '[]'], environment: env);
+    await Process.run(ipfsBin, ['config', '--json', 'Routing.DelegatedRouters', '[]'], environment: env);
+    await Process.run(ipfsBin, ['config', '--json', 'Ipns.DelegatedPublishers', '[]'], environment: env);
+    await Process.run(ipfsBin, ['config', '--json', 'DNS.Resolvers', '{}'], environment: env);
+    await Process.run(ipfsBin, ['config', '--json', 'Swarm.Transports.Network.Websocket', 'false'], environment: env);
+    await Process.run(ipfsBin, ['config', 'Routing.Type', 'dht'], environment: env);
+    await Process.run(ipfsBin, ['config', '--json', 'Swarm.AddrFilters', '[]'], environment: env);
+
+    _log('starting daemon (repo → $repoPath, bin → $ipfsBin)');
+    _daemonProcess = await Process.start(ipfsBin, ['daemon', '--enable-gc', '--migrate'], environment: env);
+
+    _daemonProcess!.stdout.transform(utf8.decoder).listen((s) => _log('kubo: ${s.trim()}'));
+    _daemonProcess!.stderr.transform(utf8.decoder).listen((s) => _log('kubo err: ${s.trim()}'));
+
+    bool processExited = false;
+    _daemonProcess!.exitCode.then((code) {
+      processExited = true;
+      if (status.value != IpfsNodeStatus.stopping) {
+        _log('daemon exited unexpectedly (code $code)');
+        isRunning.value = false;
+        status.value = IpfsNodeStatus.stopped;
+      }
+    });
+
+    await _waitUntilReady(shouldAbort: () => processExited);
+
+    if (processExited) return; // daemon died during startup, already logged
+
+    isRunning.value = true;
+    status.value = IpfsNodeStatus.running;
+    _log('local node ready — gateway $_gatewayUrl');
+    await connectToCentralNode();
+  }
+
+  Future<void> _stopLinux() async {
+    _daemonProcess?.kill(ProcessSignal.sigterm);
+    await _daemonProcess?.exitCode;
+    _daemonProcess = null;
+    isRunning.value = false;
+    status.value = IpfsNodeStatus.stopped;
+    _log('daemon stopped');
+  }
+
+  /// Resolves the Kubo binary path: bundled next to the executable, then PATH.
+  Future<String?> _resolveIpfsBinary() async {
+    final execDir = File(Platform.resolvedExecutable).parent.path;
+    final bundled = File('$execDir/ipfs');
+    if (bundled.existsSync()) return bundled.path;
+
+    final result = await Process.run('which', ['ipfs']);
+    if (result.exitCode == 0) {
+      final path = (result.stdout as String).trim();
+      if (path.isNotEmpty) return path;
+    }
+
+    return null;
+  }
+
+  // ── Shared helpers ────────────────────────────────────────────────────────
 
   Future<String> _resolveRepoPath() async {
     final support = await getApplicationSupportDirectory();
@@ -293,10 +439,15 @@ class IpfsLocalNode extends GetxService {
   Future<void> _waitUntilReady({
     Duration timeout = const Duration(seconds: 30),
     Duration interval = const Duration(milliseconds: 500),
+    bool Function()? shouldAbort,
   }) async {
     final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
-      if (await _isApiReachable()) return;
+      if (shouldAbort != null && shouldAbort()) return;
+      if (await _isApiReachable()) {
+        if (shouldAbort != null && shouldAbort()) return;
+        return;
+      }
       await Future<void>.delayed(interval);
     }
     _log('WARNING: daemon did not become ready within ${timeout.inSeconds}s');

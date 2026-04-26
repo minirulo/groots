@@ -15,7 +15,7 @@ class IpfsStatusIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (kIsWeb || !Platform.isMacOS) return const SizedBox.shrink();
+    if (kIsWeb || (!Platform.isMacOS && !Platform.isLinux)) return const SizedBox.shrink();
 
     final node = Get.find<IpfsLocalNode>();
 

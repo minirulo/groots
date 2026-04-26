@@ -64,6 +64,22 @@
             "program": "groots_app/lib/production.dart",
             "flutterMode": "release",
             "deviceId": "android"
+        },
+        {
+            "name": "Linux (development)",
+            "request": "launch",
+            "type": "dart",
+            "program": "groots_app/lib/development.dart",
+            "flutterMode": "debug",
+            "deviceId": "linux"
+        },
+        {
+            "name": "Linux (production)",
+            "request": "launch",
+            "type": "dart",
+            "program": "groots_app/lib/production.dart",
+            "flutterMode": "release",
+            "deviceId": "linux"
         }
     ]
 }
