@@ -141,6 +141,20 @@ async def _resolve_album_id(
     return None, None, False
 
 
+async def _pin_album_cover(
+    album_id: str,
+    cover_image: bytes,
+    cover_mime: str | None,
+    uow: AbstractUnitOfWork,
+) -> None:
+    album = await uow.albums.get(album_id)
+    if not album or album.cover_cid:
+        return
+    ext = ".png" if (cover_mime or "").endswith("png") else ".jpg"
+    album.cover_cid = await uow.ipfs.pin_add_bytes(cover_image, f"cover_{album_id}{ext}")
+    await uow.albums.update(album)
+
+
 # ── command handlers ──────────────────────────────────────────────────────────
 
 
@@ -243,6 +257,10 @@ async def handle_upload_track(cmd: UploadTrack, uow: AbstractUnitOfWork) -> dict
             created_by=cmd.user_id,
             uow=uow,
         )
+
+        # ── 4a. Auto-pin embedded cover art for newly created albums ─────────
+        if promote_to_central and album_id and meta.cover_image:
+            await _pin_album_cover(album_id, meta.cover_image, meta.cover_mime, uow)
 
         # ── 4b. CD verification (only when user declared source as CD) ────────
         cd_verification: dict | None = None

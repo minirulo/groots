@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -67,7 +68,8 @@ _ParsedEntry _parseFilename(String filePath, {String fallbackArtist = ''}) {
 // ── Main widget ───────────────────────────────────────────────────────────────
 
 class SyncView extends StatefulWidget {
-  const SyncView({super.key});
+  final void Function(Album album)? onSyncComplete;
+  const SyncView({super.key, this.onSyncComplete});
 
   @override
   State<SyncView> createState() => _SyncViewState();
@@ -84,6 +86,9 @@ class _SyncViewState extends State<SyncView> {
 
   MusicSource? _source;
 
+  Uint8List? _coverBytes;
+  String? _coverMime;
+
   bool _syncing = false;
 
   static const _audioExtensions = {
@@ -98,33 +103,64 @@ class _SyncViewState extends State<SyncView> {
 
   // ── Source picking ───────────────────────────────────────────────────────────
 
-  Future<MusicSource?> _pickSource() async {
+  Future<MusicSource?> _pickMusicSource() async {
     return showMaterialModalBottomSheet<MusicSource>(
       context: context,
       builder: (_) => const SourcePickerSheet(),
     );
   }
 
-  // ── File/folder picking ──────────────────────────────────────────────────────
+  // ── Entry point: select source ────────────────────────────────────────────────
 
-  Future<void> _pickDirectory() async {
-    final source = await _pickSource();
+  Future<void> _selectSource() async {
+    final source = await _pickMusicSource();
     if (source == null) return;
 
     if (source == MusicSource.vinyl) {
       if (mounted) {
-        await Navigator.push(
+        final album = await Navigator.push<Album?>(
           context,
           MaterialPageRoute(builder: (_) => const VinylSyncView()),
         );
         if (mounted) {
           context.read<LibraryBloc>().add(LibraryLoadRequested());
           context.read<AlbumBloc>().add(AlbumLoadRequested());
+          if (album != null) widget.onSyncComplete?.call(album);
         }
       }
       return;
     }
 
+    if (!mounted) return;
+    final useFolder = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add audio files'),
+        content: const Text('How do you want to select your files?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Individual files'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('From folder'),
+          ),
+        ],
+      ),
+    );
+    if (useFolder == null || !mounted) return;
+
+    if (useFolder) {
+      await _pickDirectory(source);
+    } else {
+      await _pickFiles(source);
+    }
+  }
+
+  // ── File/folder picking ──────────────────────────────────────────────────────
+
+  Future<void> _pickDirectory(MusicSource source) async {
     final dir = await FilePicker.platform.getDirectoryPath(
       dialogTitle: 'Select an album folder',
     );
@@ -150,31 +186,42 @@ class _SyncViewState extends State<SyncView> {
       _albumResolved = false;
       _albumId = null;
       _resolvedAlbum = null;
+      _coverBytes = null;
+      _coverMime = null;
     });
 
     if (files.isNotEmpty) {
-      await _findAndProposeAlbum();
+      await Future.wait([
+        _findAndProposeAlbum(),
+        _extractCoverFromFirstFile(files.first),
+      ]);
     }
   }
 
-  Future<void> _pickFiles() async {
-    final source = await _pickSource();
-    if (source == null) return;
+  static const _coverReadLimit = 1024 * 1024; // 1 MB
 
-    if (source == MusicSource.vinyl) {
-      if (mounted) {
-        await Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const VinylSyncView()),
-        );
-        if (mounted) {
-          context.read<LibraryBloc>().add(LibraryLoadRequested());
-          context.read<AlbumBloc>().add(AlbumLoadRequested());
-        }
+  Future<void> _extractCoverFromFirstFile(File file) async {
+    try {
+      final raf = await file.open();
+      final head = Uint8List(_coverReadLimit);
+      final read = await raf.readInto(head);
+      await raf.close();
+      final result = await Get.find<LibraryProvider>().extractCover(
+        headBytes: head.sublist(0, read),
+        filename: p.basename(file.path),
+      );
+      if (mounted && result != null) {
+        setState(() {
+          _coverBytes = result.bytes;
+          _coverMime = result.mime;
+        });
       }
-      return;
+    } catch (_) {
+      // Cover extraction is best-effort; proceed without it.
     }
+  }
 
+  Future<void> _pickFiles(MusicSource source) async {
     final result = await FilePicker.platform.pickFiles(
       dialogTitle: 'Select audio files',
       allowMultiple: true,
@@ -197,9 +244,11 @@ class _SyncViewState extends State<SyncView> {
       _albumResolved = false;
       _albumId = null;
       _resolvedAlbum = null;
+      _coverBytes = null;
+      _coverMime = null;
     });
 
-    _showCreateSheet();
+    _showAlbumPickerSheet();
   }
 
   // ── Album detection ─────────────────────────────────────────────────────────
@@ -220,7 +269,7 @@ class _SyncViewState extends State<SyncView> {
     if (match != null) {
       _showMatchSheet(match);
     } else {
-      _showCreateSheet();
+      _showAlbumPickerSheet();
     }
   }
 
@@ -261,13 +310,13 @@ class _SyncViewState extends State<SyncView> {
         },
         onDecline: () {
           Navigator.pop(ctx);
-          _showCreateSheet();
+          _showAlbumPickerSheet();
         },
       ),
     );
   }
 
-  void _showCreateSheet() {
+  void _showAlbumPickerSheet() {
     final folderName = _selectedDir != null ? p.basename(_selectedDir!) : '';
     final artistHint = _entries.isNotEmpty
         ? _parseFilename(_entries.first.file.path).artist
@@ -275,10 +324,13 @@ class _SyncViewState extends State<SyncView> {
 
     showMaterialModalBottomSheet(
       context: context,
-      builder: (ctx) => _AlbumCreateSheet(
+      builder: (ctx) => _AlbumPickerSheet(
         titleHint: folderName,
         artistHint: artistHint,
-        onCreated: (albumId, album) {
+        initialCoverBytes: _coverBytes,
+        initialCoverMime: _coverMime,
+        source: _source,
+        onSelected: (albumId, album) {
           Navigator.pop(ctx);
           _resolveAlbum(albumId, album);
         },
@@ -328,7 +380,10 @@ class _SyncViewState extends State<SyncView> {
     }
 
     setState(() => _syncing = false);
-    if (mounted) context.read<LibraryBloc>().add(LibraryLoadRequested());
+    if (mounted) {
+      context.read<LibraryBloc>().add(LibraryLoadRequested());
+      context.read<AlbumBloc>().add(AlbumLoadRequested());
+    }
 
     // If user declared CD but none of the tracks had CD signals, warn and revert source.
     if (mounted && _source == MusicSource.cd && !useLocalNode) {
@@ -336,6 +391,10 @@ class _SyncViewState extends State<SyncView> {
           .where((e) => e.cdVerification?['confidence'] == 'weak')
           .length;
       if (weakCount > 0) await _showCdMismatchDialog(weakCount);
+    }
+
+    if (mounted && _resolvedAlbum != null) {
+      widget.onSyncComplete?.call(_resolvedAlbum!);
     }
   }
 
@@ -518,15 +577,9 @@ class _SyncViewState extends State<SyncView> {
           child: Row(
             children: [
               FilledButton.icon(
-                onPressed: _syncing ? null : _pickDirectory,
-                icon: const Icon(Icons.folder_open),
-                label: const Text('Select folder'),
-              ),
-              const SizedBox(width: 8),
-              OutlinedButton.icon(
-                onPressed: _syncing ? null : _pickFiles,
-                icon: const Icon(Icons.audio_file),
-                label: const Text('Select files'),
+                onPressed: _syncing ? null : _selectSource,
+                icon: const Icon(Icons.add_circle_outline),
+                label: const Text('Select source'),
               ),
               const SizedBox(width: 12),
               if (_entries.isNotEmpty)
@@ -565,7 +618,7 @@ class _SyncViewState extends State<SyncView> {
             albumResolved: _albumResolved,
             resolvedAlbum: _resolvedAlbum,
             onChangeAlbum: _entries.isNotEmpty && !_syncing && !_searchingAlbum
-                ? _showCreateSheet
+                ? _showAlbumPickerSheet
                 : null,
           ),
 
@@ -887,47 +940,100 @@ class _AlbumMatchSheet extends StatelessWidget {
   }
 }
 
-// ── Album creation sheet ──────────────────────────────────────────────────────
+// ── Album picker sheet (search existing or create new) ────────────────────────
 
-class _AlbumCreateSheet extends StatefulWidget {
+class _AlbumPickerSheet extends StatefulWidget {
   final String titleHint;
   final String artistHint;
-  final void Function(String albumId, Album album) onCreated;
+  final Uint8List? initialCoverBytes;
+  final String? initialCoverMime;
+  final MusicSource? source;
+  final void Function(String albumId, Album album) onSelected;
   final VoidCallback onSkip;
 
-  const _AlbumCreateSheet({
+  const _AlbumPickerSheet({
     required this.titleHint,
     required this.artistHint,
-    required this.onCreated,
+    this.initialCoverBytes,
+    this.initialCoverMime,
+    this.source,
+    required this.onSelected,
     required this.onSkip,
   });
 
   @override
-  State<_AlbumCreateSheet> createState() => _AlbumCreateSheetState();
+  State<_AlbumPickerSheet> createState() => _AlbumPickerSheetState();
 }
 
-class _AlbumCreateSheetState extends State<_AlbumCreateSheet> {
+class _AlbumPickerSheetState extends State<_AlbumPickerSheet> {
+  late final TextEditingController _searchCtrl;
+  bool _searching = false;
+  List<Album> _results = [];
+
+  // Create-mode fields
+  bool _showCreate = false;
   late final TextEditingController _titleCtrl;
   late final TextEditingController _artistCtrl;
   final TextEditingController _yearCtrl = TextEditingController();
-  final TextEditingController _genreCtrl = TextEditingController();
+  String? _selectedGenre;
   String? _selectedFormat;
   bool _creating = false;
+
+  Uint8List? _coverBytes;
+  String? _coverMime;
 
   @override
   void initState() {
     super.initState();
+    _searchCtrl = TextEditingController(text: widget.titleHint);
     _titleCtrl = TextEditingController(text: widget.titleHint);
     _artistCtrl = TextEditingController(text: widget.artistHint);
+    _coverBytes = widget.initialCoverBytes;
+    _coverMime = widget.initialCoverMime;
+    if (widget.source == MusicSource.cd) _selectedFormat = 'CD';
+    if (widget.titleHint.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _search());
+    }
   }
 
   @override
   void dispose() {
+    _searchCtrl.dispose();
     _titleCtrl.dispose();
     _artistCtrl.dispose();
     _yearCtrl.dispose();
-    _genreCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickCover() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: false,
+    );
+    final path = result?.files.firstOrNull?.path;
+    if (path == null) return;
+    final bytes = await File(path).readAsBytes();
+    final ext = p.extension(path).toLowerCase();
+    setState(() {
+      _coverBytes = bytes;
+      _coverMime = ext == '.png' ? 'image/png' : 'image/jpeg';
+    });
+  }
+
+  Future<void> _search() async {
+    final q = _searchCtrl.text.trim();
+    if (q.isEmpty) return;
+    setState(() {
+      _searching = true;
+      _results = [];
+    });
+    try {
+      final results = await Get.find<AlbumProvider>().searchAlbums(q);
+      if (mounted) setState(() => _results = results);
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _searching = false);
+    }
   }
 
   Future<void> _create() async {
@@ -939,19 +1045,25 @@ class _AlbumCreateSheetState extends State<_AlbumCreateSheet> {
         'title': _titleCtrl.text,
         'artist': _artistCtrl.text,
         if (_yearCtrl.text.isNotEmpty) 'year': int.tryParse(_yearCtrl.text),
-        if (_genreCtrl.text.isNotEmpty) 'genre': _genreCtrl.text,
+        if (_selectedGenre != null) 'genre': _selectedGenre,
         if (_selectedFormat != null) 'recording_format': _selectedFormat,
       });
-
+      if (_coverBytes != null) {
+        await provider.uploadCover(
+          albumId,
+          _coverBytes!,
+          _coverMime ?? 'image/jpeg',
+        );
+      }
       final album = Album(
         id: albumId,
         title: _titleCtrl.text,
         artist: _artistCtrl.text,
         year: int.tryParse(_yearCtrl.text),
-        genre: _genreCtrl.text.isNotEmpty ? _genreCtrl.text : null,
+        genre: _selectedGenre,
         recordingFormat: _selectedFormat,
       );
-      widget.onCreated(albumId, album);
+      widget.onSelected(albumId, album);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -975,102 +1087,282 @@ class _AlbumCreateSheetState extends State<_AlbumCreateSheet> {
         24,
         MediaQuery.of(context).viewInsets.bottom + 32,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Create album', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 4),
-          Text(
-            'Fill in the details for this album folder.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+      child: _showCreate ? _buildCreateView() : _buildSearchView(),
+    );
+  }
+
+  Widget _buildSearchView() {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Add to album', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _searchCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Search albums…',
+                  prefixIcon: Icon(Icons.search),
+                  border: OutlineInputBorder(),
+                ),
+                onSubmitted: (_) => _search(),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton.filled(
+              onPressed: _searching ? null : _search,
+              icon: _searching
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.search),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (_results.isNotEmpty)
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 200),
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: _results.length,
+              itemBuilder: (_, i) {
+                final album = _results[i];
+                final meta = [
+                  if (album.artist.isNotEmpty) album.artist,
+                  if (album.year != null) '${album.year}',
+                  if (album.recordingFormat != null) album.recordingFormat!,
+                ].join(' · ');
+                return ListTile(
+                  leading: const Icon(Icons.album),
+                  title: Text(album.title, overflow: TextOverflow.ellipsis),
+                  subtitle: meta.isNotEmpty
+                      ? Text(meta, overflow: TextOverflow.ellipsis)
+                      : null,
+                  contentPadding: EdgeInsets.zero,
+                  onTap: () => widget.onSelected(album.id, album),
+                );
+              },
             ),
           ),
-          const SizedBox(height: 20),
-          TextField(
-            controller: _titleCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Title *',
-              border: OutlineInputBorder(),
+        if (!_searching && _results.isEmpty && _searchCtrl.text.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              'No albums found.',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
           ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _artistCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Artist *',
-              border: OutlineInputBorder(),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: widget.onSkip,
+                child: const Text('Sync without album'),
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _yearCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Year',
-                    border: OutlineInputBorder(),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: () => setState(() => _showCreate = true),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Create new'),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCreateView() {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            IconButton(
+              icon: const Icon(Icons.arrow_back),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              onPressed: () => setState(() => _showCreate = false),
+            ),
+            const SizedBox(width: 8),
+            Text('New album', style: Theme.of(context).textTheme.titleMedium),
+          ],
+        ),
+        const SizedBox(height: 16),
+        // Cover picker
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            GestureDetector(
+              onTap: _pickCover,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: SizedBox(
+                  width: 88,
+                  height: 88,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      _coverBytes != null
+                          ? Image.memory(_coverBytes!, fit: BoxFit.cover)
+                          : Container(
+                              color: scheme.surfaceContainerHighest,
+                              child: Icon(
+                                Icons.album,
+                                color: scheme.onSurfaceVariant,
+                                size: 40,
+                              ),
+                            ),
+                      Positioned(
+                        right: 4,
+                        bottom: 4,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: scheme.surface.withValues(alpha: 0.8),
+                            shape: BoxShape.circle,
+                          ),
+                          padding: const EdgeInsets.all(4),
+                          child: Icon(
+                            Icons.edit,
+                            size: 14,
+                            color: scheme.onSurface,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  keyboardType: TextInputType.number,
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: TextField(
-                  controller: _genreCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Genre',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: _selectedFormat,
-            decoration: const InputDecoration(
-              labelText: 'Format',
-              border: OutlineInputBorder(),
             ),
-            items: recordingFormats
-                .map((f) => DropdownMenuItem(value: f, child: Text(f)))
-                .toList(),
-            onChanged: (v) => setState(() => _selectedFormat = v),
-          ),
-          const SizedBox(height: 24),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: _creating ? null : widget.onSkip,
-                  child: const Text('Sync without album'),
-                ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextField(
+                    controller: _titleCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Title *',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _artistCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Artist *',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton(
-                  onPressed:
-                      _creating ||
-                          _titleCtrl.text.isEmpty ||
-                          _artistCtrl.text.isEmpty
-                      ? null
-                      : _create,
-                  child: _creating
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Create album'),
-                ),
+            ),
+          ],
+        ),
+        if (_coverBytes != null)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () => setState(() {
+                _coverBytes = null;
+                _coverMime = null;
+              }),
+              icon: const Icon(Icons.close, size: 14),
+              label: const Text('Remove cover'),
+              style: TextButton.styleFrom(
+                foregroundColor: scheme.onSurfaceVariant,
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
               ),
-            ],
+            ),
           ),
-        ],
-      ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _yearCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Year',
+            border: OutlineInputBorder(),
+          ),
+          keyboardType: TextInputType.number,
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String>(
+          initialValue: _selectedGenre,
+          decoration: const InputDecoration(
+            labelText: 'Genre',
+            border: OutlineInputBorder(),
+          ),
+          items: context
+              .read<AlbumBloc>()
+              .state
+              .genres
+              .map((g) => DropdownMenuItem(value: g, child: Text(g)))
+              .toList(),
+          onChanged: (v) => setState(() => _selectedGenre = v),
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String>(
+          initialValue: _selectedFormat,
+          decoration: const InputDecoration(
+            labelText: 'Format',
+            border: OutlineInputBorder(),
+          ),
+          items: recordingFormats
+              .map((f) => DropdownMenuItem(value: f, child: Text(f)))
+              .toList(),
+          onChanged: widget.source == MusicSource.cd
+              ? null
+              : (v) => setState(() => _selectedFormat = v),
+        ),
+        const SizedBox(height: 24),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _creating
+                    ? null
+                    : () => setState(() => _showCreate = false),
+                child: const Text('Back'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton(
+                onPressed:
+                    _creating ||
+                        _titleCtrl.text.isEmpty ||
+                        _artistCtrl.text.isEmpty
+                    ? null
+                    : _create,
+                child: _creating
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Create album'),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

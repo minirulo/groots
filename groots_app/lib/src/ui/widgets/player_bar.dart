@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import 'package:modal_bottom_sheet/modal_bottom_sheet.dart';
 
 import '../../adapters/providers/album_provider.dart';
+import '../../service_layer/audio_handler.dart';
 import '../../service_layer/blocs/album/album_bloc.dart';
 import '../../service_layer/blocs/album/album_state.dart';
 import '../../service_layer/player_service.dart';
@@ -19,9 +20,12 @@ class PlayerBar extends StatelessWidget {
 
       final coverUrl = _resolveCoverUrl(track.albumId);
 
-      return GestureDetector(
-        onTap: () => _openFullPlayer(context, player, coverUrl),
-        child: _MiniPlayer(player: player, coverUrl: coverUrl),
+      return MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: () => _openFullPlayer(context, player, coverUrl),
+          child: _MiniPlayer(player: player, coverUrl: coverUrl),
+        ),
       );
     });
   }
@@ -30,12 +34,18 @@ class PlayerBar extends StatelessWidget {
     if (albumId == null) return null;
     final albumBloc = Get.find<AlbumBloc>();
     if (albumBloc.state.status != AlbumStatus.loaded) return null;
-    final album = albumBloc.state.albums.where((a) => a.id == albumId).firstOrNull;
+    final album = albumBloc.state.albums
+        .where((a) => a.id == albumId)
+        .firstOrNull;
     if (album?.coverCid == null) return null;
     return Get.find<AlbumProvider>().coverUrl(album!.coverCid!);
   }
 
-  void _openFullPlayer(BuildContext context, PlayerService player, String? coverUrl) {
+  void _openFullPlayer(
+    BuildContext context,
+    PlayerService player,
+    String? coverUrl,
+  ) {
     showCupertinoModalBottomSheet(
       context: context,
       expand: true,
@@ -79,8 +89,12 @@ class _MiniPlayer extends StatelessWidget {
           ),
         Container(
           decoration: BoxDecoration(
-            color: coverUrl == null ? scheme.surfaceContainerHigh : Colors.transparent,
-            border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
+            color: coverUrl == null
+                ? scheme.surfaceContainerHigh
+                : Colors.transparent,
+            border: Border(
+              top: BorderSide(color: Theme.of(context).dividerColor),
+            ),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           child: Row(
@@ -95,10 +109,9 @@ class _MiniPlayer extends StatelessWidget {
                     Text(
                       track.title,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodyMedium
-                          ?.copyWith(fontWeight: FontWeight.bold),
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     Text(
                       track.artist,
@@ -108,21 +121,29 @@ class _MiniPlayer extends StatelessWidget {
                   ],
                 ),
               ),
-              Obx(() => IconButton(
-                    icon: const Icon(Icons.skip_previous),
-                    onPressed: player.hasPrevious.value ? player.previous : null,
-                    visualDensity: VisualDensity.compact,
-                  )),
-              Obx(() => IconButton(
-                    icon: Icon(player.isPlaying.value ? Icons.pause : Icons.play_arrow),
-                    onPressed: player.togglePause,
-                    visualDensity: VisualDensity.compact,
-                  )),
-              Obx(() => IconButton(
-                    icon: const Icon(Icons.skip_next),
-                    onPressed: player.hasNext.value ? player.next : null,
-                    visualDensity: VisualDensity.compact,
-                  )),
+              Obx(
+                () => IconButton(
+                  icon: const Icon(Icons.skip_previous),
+                  onPressed: player.hasPrevious.value ? player.previous : null,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+              Obx(
+                () => IconButton(
+                  icon: Icon(
+                    player.isPlaying.value ? Icons.pause : Icons.play_arrow,
+                  ),
+                  onPressed: player.togglePause,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+              Obx(
+                () => IconButton(
+                  icon: const Icon(Icons.skip_next),
+                  onPressed: player.hasNext.value ? player.next : null,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
             ],
           ),
         ),
@@ -133,11 +154,37 @@ class _MiniPlayer extends StatelessWidget {
 
 // ── Full player sheet ─────────────────────────────────────────────────────────
 
-class _FullPlayerSheet extends StatelessWidget {
+class _FullPlayerSheet extends StatefulWidget {
   final PlayerService player;
   final String? coverUrl;
 
   const _FullPlayerSheet({required this.player, this.coverUrl});
+
+  @override
+  State<_FullPlayerSheet> createState() => _FullPlayerSheetState();
+}
+
+class _FullPlayerSheetState extends State<_FullPlayerSheet> {
+  bool _showQueue = false;
+  late final Worker _closeWatcher;
+
+  PlayerService get player => widget.player;
+
+  @override
+  void initState() {
+    super.initState();
+    _closeWatcher = ever(player.currentTrack, (track) {
+      if (track == null && mounted) {
+        Navigator.of(context).maybePop();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _closeWatcher.dispose();
+    super.dispose();
+  }
 
   String _fmt(Duration d) {
     final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
@@ -151,31 +198,20 @@ class _FullPlayerSheet extends StatelessWidget {
       color: Colors.black,
       child: Obx(() {
         final track = player.currentTrack.value;
-        if (track == null) {
-          Navigator.pop(context);
-          return const SizedBox.shrink();
-        }
+        if (track == null) return const SizedBox.shrink();
 
-        final pos = player.position.value;
-        final dur = player.duration.value;
-        final total = dur.inMilliseconds > 0 ? dur.inMilliseconds.toDouble() : 1.0;
-
-        // Resolve cover freshly inside Obx in case track changes
         final freshCover = _resolveCurrentCover();
 
         return Stack(
           fit: StackFit.expand,
           children: [
-            // Blurred full-screen cover background
             if (freshCover != null)
               Image.network(
                 freshCover,
                 fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) => const SizedBox.shrink(),
               ),
-            // Dark scrim over the cover
             Container(color: Colors.black.withValues(alpha: 0.55)),
-            // Content
             SafeArea(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -183,142 +219,67 @@ class _FullPlayerSheet extends StatelessWidget {
                   children: [
                     const SizedBox(height: 12),
                     // Drag handle
-                    Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.4),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    // Cover art
-                    Expanded(
-                      child: Center(
-                        child: AspectRatio(
-                          aspectRatio: 1,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(16),
-                            child: freshCover != null
-                                ? Image.network(
-                                    freshCover,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) =>
-                                        const _PlaceholderCover(),
-                                  )
-                                : const _PlaceholderCover(),
-                          ),
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.4),
+                          borderRadius: BorderRadius.circular(2),
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 32),
-                    // Track info
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          track.title,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          track.artist,
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.75),
-                            fontSize: 16,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        if (track.album != null)
-                          Text(
-                            track.album!,
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.5),
-                              fontSize: 13,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    // Scrubber
-                    SliderTheme(
-                      data: SliderTheme.of(context).copyWith(
-                        activeTrackColor: Colors.white,
-                        inactiveTrackColor: Colors.white24,
-                        thumbColor: Colors.white,
-                        overlayColor: Colors.white24,
-                      ),
-                      child: Slider(
-                        value: pos.inMilliseconds.toDouble().clamp(0, total),
-                        max: total,
-                        onChanged: (v) =>
-                            player.seekTo(Duration(milliseconds: v.toInt())),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(_fmt(pos),
-                              style: const TextStyle(
-                                  color: Colors.white70, fontSize: 12)),
-                          Text(_fmt(dur),
-                              style: const TextStyle(
-                                  color: Colors.white70, fontSize: 12)),
-                        ],
                       ),
                     ),
                     const SizedBox(height: 12),
-                    // Playback controls
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        Obx(() => IconButton(
-                              iconSize: 40,
-                              color: player.hasPrevious.value
-                                  ? Colors.white
-                                  : Colors.white30,
-                              icon: const Icon(Icons.skip_previous_rounded),
-                              onPressed:
-                                  player.hasPrevious.value ? player.previous : null,
-                            )),
-                        Obx(() => Container(
-                              decoration: const BoxDecoration(
-                                color: Colors.white,
-                                shape: BoxShape.circle,
+                    if (_showQueue)
+                      Expanded(child: _QueueView(player: player))
+                    else
+                      _PlayerContent(
+                        player: player,
+                        track: track,
+                        freshCover: freshCover,
+                        fmt: _fmt,
+                      ),
+                    // Bottom action row: repeat | stop | queue
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Obx(
+                            () => IconButton(
+                              icon: Icon(
+                                Icons.repeat_one,
+                                color: player.isRepeating.value
+                                    ? Colors.white
+                                    : Colors.white38,
                               ),
-                              child: IconButton(
-                                iconSize: 44,
-                                color: Colors.black,
-                                icon: Icon(
-                                  player.isPlaying.value
-                                      ? Icons.pause_rounded
-                                      : Icons.play_arrow_rounded,
-                                ),
-                                onPressed: player.togglePause,
-                              ),
-                            )),
-                        Obx(() => IconButton(
-                              iconSize: 40,
-                              color: player.hasNext.value
-                                  ? Colors.white
-                                  : Colors.white30,
-                              icon: const Icon(Icons.skip_next_rounded),
-                              onPressed: player.hasNext.value ? player.next : null,
-                            )),
-                      ],
+                              tooltip: player.isRepeating.value
+                                  ? 'Repeat off'
+                                  : 'Repeat track',
+                              onPressed: player.toggleRepeat,
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(
+                              Icons.stop_circle_outlined,
+                              color: Colors.white54,
+                            ),
+                            tooltip: 'Stop & clear queue',
+                            onPressed: player.stop,
+                          ),
+                          IconButton(
+                            icon: Icon(
+                              Icons.queue_music,
+                              color: _showQueue ? Colors.white : Colors.white38,
+                            ),
+                            tooltip: _showQueue ? 'Now Playing' : 'Queue',
+                            onPressed: () =>
+                                setState(() => _showQueue = !_showQueue),
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 16),
                   ],
                 ),
               ),
@@ -331,14 +292,289 @@ class _FullPlayerSheet extends StatelessWidget {
 
   String? _resolveCurrentCover() {
     final track = player.currentTrack.value;
-    if (track?.albumId == null) return coverUrl;
+    if (track?.albumId == null) return widget.coverUrl;
     final albumBloc = Get.find<AlbumBloc>();
-    if (albumBloc.state.status != AlbumStatus.loaded) return coverUrl;
+    if (albumBloc.state.status != AlbumStatus.loaded) return widget.coverUrl;
     final album = albumBloc.state.albums
         .where((a) => a.id == track!.albumId)
         .firstOrNull;
-    if (album?.coverCid == null) return coverUrl;
+    if (album?.coverCid == null) return widget.coverUrl;
     return Get.find<AlbumProvider>().coverUrl(album!.coverCid!);
+  }
+}
+
+// ── Player content (cover + scrubber + controls) ──────────────────────────────
+
+class _PlayerContent extends StatelessWidget {
+  final PlayerService player;
+  final dynamic track;
+  final String? freshCover;
+  final String Function(Duration) fmt;
+
+  const _PlayerContent({
+    required this.player,
+    required this.track,
+    required this.freshCover,
+    required this.fmt,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        children: [
+          // Cover art
+          Expanded(
+            child: Center(
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: freshCover != null
+                      ? Image.network(
+                          freshCover!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) =>
+                              const _PlaceholderCover(),
+                        )
+                      : const _PlaceholderCover(),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 32),
+          // Track info
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                track.title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                track.artist,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.75),
+                  fontSize: 16,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              if (track.album != null)
+                Text(
+                  track.album!,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.5),
+                    fontSize: 13,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          // Scrubber
+          Obx(() {
+            final pos = player.position.value;
+            final dur = player.duration.value;
+            final total = dur.inMilliseconds > 0
+                ? dur.inMilliseconds.toDouble()
+                : 1.0;
+            return Column(
+              children: [
+                SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    activeTrackColor: Colors.white,
+                    inactiveTrackColor: Colors.white24,
+                    thumbColor: Colors.white,
+                    overlayColor: Colors.white24,
+                  ),
+                  child: Slider(
+                    value: pos.inMilliseconds.toDouble().clamp(0, total),
+                    max: total,
+                    onChanged: (v) =>
+                        player.seekTo(Duration(milliseconds: v.toInt())),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        fmt(pos),
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
+                      ),
+                      Text(
+                        fmt(dur),
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          }),
+          const SizedBox(height: 12),
+          // Playback controls
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              Obx(
+                () => IconButton(
+                  iconSize: 40,
+                  color: player.hasPrevious.value
+                      ? Colors.white
+                      : Colors.white30,
+                  icon: const Icon(Icons.skip_previous_rounded),
+                  onPressed: player.hasPrevious.value ? player.previous : null,
+                ),
+              ),
+              Obx(
+                () => Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    iconSize: 44,
+                    color: Colors.black,
+                    icon: Icon(
+                      player.isPlaying.value
+                          ? Icons.pause_rounded
+                          : Icons.play_arrow_rounded,
+                    ),
+                    onPressed: player.togglePause,
+                  ),
+                ),
+              ),
+              Obx(
+                () => IconButton(
+                  iconSize: 40,
+                  color: player.hasNext.value ? Colors.white : Colors.white30,
+                  icon: const Icon(Icons.skip_next_rounded),
+                  onPressed: player.hasNext.value ? player.next : null,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Queue view ────────────────────────────────────────────────────────────────
+
+class _QueueView extends StatelessWidget {
+  final PlayerService player;
+
+  const _QueueView({required this.player});
+
+  @override
+  Widget build(BuildContext context) {
+    return Obx(() {
+      final q = player.queue;
+      final cur = player.queueCurrentIndex.value;
+      final manual = player.queueNumManuallyAdded.value;
+
+      // Indices of upcoming sections
+      final manualStart = cur + 1;
+      final manualEnd = cur + manual; // inclusive
+      final albumStart = cur + manual + 1;
+
+      return ListView(
+        children: [
+          _QueueSectionHeader('Now Playing'),
+          if (cur >= 0 && cur < q.length)
+            _QueueTrackTile(item: q[cur], isCurrent: true),
+
+          if (manual > 0) ...[
+            _QueueSectionHeader('Next Up'),
+            for (int i = manualStart; i <= manualEnd && i < q.length; i++)
+              _QueueTrackTile(item: q[i]),
+          ],
+
+          if (albumStart < q.length) ...[
+            _QueueSectionHeader('From Album'),
+            for (int i = albumStart; i < q.length; i++)
+              _QueueTrackTile(item: q[i]),
+          ],
+        ],
+      );
+    });
+  }
+}
+
+class _QueueSectionHeader extends StatelessWidget {
+  final String title;
+  const _QueueSectionHeader(this.title);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 16, 4, 6),
+      child: Text(
+        title,
+        style: TextStyle(
+          color: Colors.white.withValues(alpha: 0.5),
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.8,
+        ),
+      ),
+    );
+  }
+}
+
+class _QueueTrackTile extends StatelessWidget {
+  final QueueItem item;
+  final bool isCurrent;
+
+  const _QueueTrackTile({required this.item, this.isCurrent = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = item.track;
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+      leading: isCurrent
+          ? const Icon(Icons.graphic_eq, color: Colors.white, size: 20)
+          : const Icon(Icons.music_note, color: Colors.white38, size: 20),
+      title: Text(
+        t.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: isCurrent ? Colors.white : Colors.white70,
+          fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+          fontSize: 14,
+        ),
+      ),
+      subtitle: Text(
+        t.artist,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(color: Colors.white38, fontSize: 12),
+      ),
+      trailing: Text(
+        t.durationFormatted,
+        style: const TextStyle(color: Colors.white38, fontSize: 12),
+      ),
+    );
   }
 }
 

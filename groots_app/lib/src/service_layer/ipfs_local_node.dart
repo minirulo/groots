@@ -29,9 +29,9 @@ enum IpfsNodeStatus { stopped, starting, running, stopping }
 ///   Swarm   → 0.0.0.0:4101
 class IpfsLocalNode extends GetxService {
   static const _apiPort = 5101;
-  static const _gatewayPort = 8180;
-
   static const _channel = MethodChannel('groots/kubo');
+
+  int get _gatewayPort => Environment().config.localGatewayPort;
 
   final RxBool isRunning = false.obs;
   final Rx<IpfsNodeStatus> status = IpfsNodeStatus.stopped.obs;
@@ -50,23 +50,23 @@ class IpfsLocalNode extends GetxService {
     _channel.setMethodCallHandler(_handleNativeCall);
     // Poll daemon reachability every 5 s to keep [isRunning] in sync even if
     // the process is started/stopped outside of this service (e.g. dock menu).
-    _pollTimer = Timer.periodic(
-      const Duration(seconds: 5),
-      (_) async {
-        // Only probe when not in the middle of a transition.
-        if (status.value == IpfsNodeStatus.starting ||
-            status.value == IpfsNodeStatus.stopping) {
-          return;
-        }
-        final reachable = await _isApiReachable();
-        if (reachable != isRunning.value) {
-          isRunning.value = reachable;
-          status.value =
-              reachable ? IpfsNodeStatus.running : IpfsNodeStatus.stopped;
-          _log(reachable ? 'node detected as running' : 'node detected as stopped');
-        }
-      },
-    );
+    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+      // Only probe when not in the middle of a transition.
+      if (status.value == IpfsNodeStatus.starting ||
+          status.value == IpfsNodeStatus.stopping) {
+        return;
+      }
+      final reachable = await _isApiReachable();
+      if (reachable != isRunning.value) {
+        isRunning.value = reachable;
+        status.value = reachable
+            ? IpfsNodeStatus.running
+            : IpfsNodeStatus.stopped;
+        _log(
+          reachable ? 'node detected as running' : 'node detected as stopped',
+        );
+      }
+    });
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
@@ -82,10 +82,11 @@ class IpfsLocalNode extends GetxService {
 
     _log('starting via XPC (repo → $repoPath)');
 
-    final result = await _channel.invokeMapMethod<String, dynamic>(
-      'start',
-      {'repo_path': repoPath, 'swarm_key': swarmKey},
-    );
+    final result = await _channel.invokeMapMethod<String, dynamic>('start', {
+      'repo_path': repoPath,
+      'swarm_key': swarmKey,
+      'gateway_port': _gatewayPort,
+    });
 
     if (result?['success'] != true) {
       _log('XPC start failed: ${result?['error']}');
@@ -126,6 +127,31 @@ class IpfsLocalNode extends GetxService {
   String coverUrl(String cid) {
     if (isRunning.value) return '$_gatewayUrl/ipfs/$cid';
     return 'http://${Environment().config.ipfsGatewayHost}/ipfs/$cid';
+  }
+
+  /// Register the app as a macOS Login Item so the IPFS daemon starts at boot.
+  /// Returns null on success, or an error message on failure.
+  Future<String?> installAsLoginItem() async {
+    try {
+      final result = await _channel.invokeMapMethod<String, dynamic>(
+        'registerLoginItem',
+      );
+      return result?['error'] as String?;
+    } on PlatformException catch (e) {
+      return e.message;
+    }
+  }
+
+  /// Remove the app from macOS Login Items.
+  Future<String?> uninstallLoginItem() async {
+    try {
+      final result = await _channel.invokeMapMethod<String, dynamic>(
+        'unregisterLoginItem',
+      );
+      return result?['error'] as String?;
+    } on PlatformException catch (e) {
+      return e.message;
+    }
   }
 
   /// Pin a CID on the local node so it survives the central node going offline.
@@ -187,7 +213,9 @@ class IpfsLocalNode extends GetxService {
       req.headers.set('Accept', 'application/json');
       final res = await req.close();
       if (res.statusCode != 200) {
-        _log('connectToCentralNode: peer-id request failed (${res.statusCode})');
+        _log(
+          'connectToCentralNode: peer-id request failed (${res.statusCode})',
+        );
         return;
       }
       final body = await res.transform(utf8.decoder).join();

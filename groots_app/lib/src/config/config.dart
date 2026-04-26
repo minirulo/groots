@@ -12,6 +12,10 @@ abstract class BaseConfig {
   /// Dev uses 4001 (direct Docker); prod uses 4002 (nginx stream proxy).
   int get ipfsSwarmPort => 4001;
 
+  /// Local Kubo gateway port (used by the macOS embedded node).
+  /// Dev = 8180, Prod = 8280 — kept separate so both flavours can coexist on the same machine.
+  int get localGatewayPort => 8180;
+
   String get apiBaseUrl => 'http://$apiHost/api';
 
   /// Appending ?filename=track.ext forces Kubo to set the correct
@@ -35,22 +39,25 @@ abstract class BaseConfig {
 
 class DevConfig extends BaseConfig {
   @override
-  String get apiHost => '192.168.1.191:8001';
+  String get apiHost => '169.254.158.174:8001';
 
   @override
   String get appName => 'Groots Dev';
 
   @override
-  String get ipfsGatewayHost => '192.168.1.191:8080';
+  String get ipfsGatewayHost => '169.254.158.174:8080';
 
   @override
   // Same machine as the API — Docker exposes swarm on port 4001.
-  String get ipfsSwarmHost => '192.168.1.191';
+  String get ipfsSwarmHost => '169.254.158.174';
 }
 
 class ProdConfig extends BaseConfig {
   @override
   String get apiHost => 'api.groots.rce-studio.com';
+
+  @override
+  int get localGatewayPort => 8280;
 
   @override
   String get appName => 'Groots';

@@ -15,10 +15,12 @@ import '../../service_layer/blocs/playlist/playlist_bloc.dart';
 import '../../service_layer/blocs/playlist/playlist_event.dart';
 import 'package:modal_bottom_sheet/modal_bottom_sheet.dart';
 
+import '../../domain/models/album.dart';
+import '../../domain/models/track.dart';
 import '../views/admin_view.dart';
 import '../views/albums_view.dart';
-import '../views/genres_view.dart';
 import '../views/playlists_view.dart';
+import '../views/search_view.dart';
 import '../views/sync_view.dart';
 import '../widgets/ipfs_status_indicator.dart';
 import '../widgets/player_bar.dart';
@@ -33,6 +35,9 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int _index = 0;
+  Album? _pendingAlbum;
+  String? _pendingTrackId;
+  AlbumSortBy _albumSortBy = AlbumSortBy.albumName;
 
   @override
   void initState() {
@@ -47,6 +52,18 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  void _navigateToTrack(Track track) {
+    if (track.albumId == null) return;
+    final albumState = context.read<AlbumBloc>().state;
+    final matches = albumState.albums.where((a) => a.id == track.albumId);
+    if (matches.isEmpty) return;
+    setState(() {
+      _index = 0;
+      _pendingAlbum = matches.first;
+      _pendingTrackId = track.id;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = context.watch<AuthenticationBloc>().state;
@@ -58,41 +75,51 @@ class _HomePageState extends State<HomePage> {
     };
 
     final pages = [
-      const AlbumsView(),
-      const GenresView(),
+      AlbumsView(
+        pendingAlbum: _pendingAlbum,
+        onPendingAlbumConsumed: () => setState(() => _pendingAlbum = null),
+        pendingTrackId: _pendingTrackId,
+        onPendingTrackIdConsumed: () => setState(() => _pendingTrackId = null),
+        sortBy: _albumSortBy,
+        onSortChanged: (v) => setState(() => _albumSortBy = v),
+      ),
       const PlaylistsView(),
-      if (!isMobile) const SyncView(),
-      if (isAdmin) const AdminView(),
+      if (isMobile) SearchView(onTrackTapped: _navigateToTrack),
+      if (!isMobile)
+        SyncView(
+          onSyncComplete: (album) => setState(() {
+            _index = 0;
+            _pendingAlbum = album;
+          }),
+        ),
+      if (isAdmin && !isMobile) const AdminView(),
     ];
 
     // Clamp _index in case admin tab disappears (e.g. after re-auth)
     final safeIndex = _index.clamp(0, pages.length - 1);
 
     final mobileDestinations = [
-      const NavigationDestination(icon: Icon(Icons.album), label: 'Library'),
       const NavigationDestination(
-        icon: Icon(Icons.category_outlined),
-        label: 'Genres',
+        icon: Icon(Icons.library_music_outlined),
+        selectedIcon: Icon(Icons.library_music),
+        label: 'Library',
       ),
       const NavigationDestination(
-        icon: Icon(Icons.queue_music),
+        icon: Icon(Icons.queue_music_outlined),
+        selectedIcon: Icon(Icons.queue_music),
         label: 'Playlists',
       ),
-      if (isAdmin)
-        const NavigationDestination(
-          icon: Icon(Icons.admin_panel_settings),
-          label: 'Admin',
-        ),
+      const NavigationDestination(
+        icon: Icon(Icons.search_outlined),
+        selectedIcon: Icon(Icons.search),
+        label: 'Search',
+      ),
     ];
 
     final railDestinations = [
       const NavigationRailDestination(
         icon: Icon(Icons.album),
         label: Text('Library'),
-      ),
-      const NavigationRailDestination(
-        icon: Icon(Icons.category_outlined),
-        label: Text('Genres'),
       ),
       const NavigationRailDestination(
         icon: Icon(Icons.queue_music),
@@ -136,7 +163,7 @@ class _HomePageState extends State<HomePage> {
         title: const Text('Groots'),
         actions: [
           const IpfsStatusIndicator(),
-          if (isAdmin)
+          if (isAdmin && !isMobile)
             Padding(
               padding: const EdgeInsets.only(right: 4),
               child: Tooltip(
@@ -147,6 +174,51 @@ class _HomePageState extends State<HomePage> {
                   size: 20,
                 ),
               ),
+            ),
+          if (isMobile && safeIndex == 0)
+            PopupMenuButton<AlbumSortBy>(
+              icon: const Icon(Icons.filter_list),
+              tooltip: 'Sort by',
+              initialValue: _albumSortBy,
+              onSelected: (v) => setState(() => _albumSortBy = v),
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: AlbumSortBy.albumName,
+                  child: ListTile(
+                    leading: const Icon(Icons.album_outlined),
+                    title: const Text('Album'),
+                    trailing: _albumSortBy == AlbumSortBy.albumName
+                        ? const Icon(Icons.check, size: 18)
+                        : null,
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                  ),
+                ),
+                PopupMenuItem(
+                  value: AlbumSortBy.artistName,
+                  child: ListTile(
+                    leading: const Icon(Icons.person_outline),
+                    title: const Text('Artist'),
+                    trailing: _albumSortBy == AlbumSortBy.artistName
+                        ? const Icon(Icons.check, size: 18)
+                        : null,
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                  ),
+                ),
+                PopupMenuItem(
+                  value: AlbumSortBy.genre,
+                  child: ListTile(
+                    leading: const Icon(Icons.category_outlined),
+                    title: const Text('Genre'),
+                    trailing: _albumSortBy == AlbumSortBy.genre
+                        ? const Icon(Icons.check, size: 18)
+                        : null,
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                  ),
+                ),
+              ],
             ),
           IconButton(
             icon: const Icon(Icons.logout),
@@ -162,6 +234,7 @@ class _HomePageState extends State<HomePage> {
           ? NavigationBar(
               selectedIndex: safeIndex,
               onDestinationSelected: (i) => setState(() => _index = i),
+              indicatorColor: Colors.transparent,
               destinations: mobileDestinations,
             )
           : null,

@@ -6,14 +6,13 @@ private let log = OSLog(subsystem: "com.rce-studio.groots.kubo-helper", category
 final class KuboHelperService: NSObject, KuboHelperProtocol {
 
     private static let apiPort = 5101
-    private static let gatewayPort = 8180
     private static let swarmPort = 4101
 
     private var daemonProcess: Process?
 
     // MARK: - KuboHelperProtocol
 
-    func start(repoPath: String, swarmKey: String, reply: @escaping (Bool, String?) -> Void) {
+    func start(repoPath: String, swarmKey: String, gatewayPort: Int, reply: @escaping (Bool, String?) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 // Use the XPC service's own sandbox container rather than the
@@ -21,7 +20,7 @@ final class KuboHelperService: NSObject, KuboHelperProtocol {
                 // Store), the XPC service has its own container and cannot write
                 // to the parent app's container.
                 let ownRepoPath = self.sandboxedRepoPath()
-                try self.setupAndLaunch(repoPath: ownRepoPath, swarmKey: swarmKey)
+                try self.setupAndLaunch(repoPath: ownRepoPath, swarmKey: swarmKey, gatewayPort: gatewayPort)
                 reply(true, nil)
             } catch {
                 os_log("start failed: %{public}@", log: log, type: .error, error.localizedDescription)
@@ -57,7 +56,7 @@ final class KuboHelperService: NSObject, KuboHelperProtocol {
 
     // MARK: - Private
 
-    private func setupAndLaunch(repoPath: String, swarmKey: String) throws {
+    private func setupAndLaunch(repoPath: String, swarmKey: String, gatewayPort: Int) throws {
         // Fast path: if our own tracked process is running, nothing to do.
         if daemonProcess?.isRunning == true {
             os_log("daemon already running (tracked) — adopting", log: log, type: .info)
@@ -85,7 +84,7 @@ final class KuboHelperService: NSObject, KuboHelperProtocol {
 
         try initRepo(kuboURL: kuboURL, repoPath: repoPath)
         try writeSwarmKey(content: swarmKey, to: keyPath)
-        try configureNode(kuboURL: kuboURL, repoPath: repoPath)
+        try configureNode(kuboURL: kuboURL, repoPath: repoPath, gatewayPort: gatewayPort)
 
         let daemon = Process()
         daemon.executableURL = kuboURL
@@ -147,13 +146,13 @@ final class KuboHelperService: NSObject, KuboHelperProtocol {
         try content.write(toFile: path, atomically: true, encoding: .utf8)
     }
 
-    private func configureNode(kuboURL: URL, repoPath: String) throws {
+    private func configureNode(kuboURL: URL, repoPath: String, gatewayPort: Int) throws {
         func cfg(_ args: [String]) {
             _ = run(kuboURL, args: ["config"] + args, repoPath: repoPath)
         }
 
         cfg(["Addresses.API", "/ip4/127.0.0.1/tcp/\(Self.apiPort)"])
-        cfg(["Addresses.Gateway", "/ip4/127.0.0.1/tcp/\(Self.gatewayPort)"])
+        cfg(["Addresses.Gateway", "/ip4/127.0.0.1/tcp/\(gatewayPort)"])
         cfg(["--json", "API.HTTPHeaders.Access-Control-Allow-Origin",
              "[\"http://localhost:3000\",\"http://127.0.0.1:3000\",\"https://webui.ipfs.io\"]"])
         cfg(["--json", "API.HTTPHeaders.Access-Control-Allow-Methods",
@@ -167,7 +166,7 @@ final class KuboHelperService: NSObject, KuboHelperProtocol {
         _ = run(kuboURL, args: ["bootstrap", "rm", "--all"], repoPath: repoPath)
         os_log("node configured (API :%d, Gateway :%d, Swarm :%d)",
                log: log, type: .info,
-               Self.apiPort, Self.gatewayPort, Self.swarmPort)
+               Self.apiPort, gatewayPort, Self.swarmPort)
     }
 
     /// Returns true if the Kubo API is already answering on the expected port.

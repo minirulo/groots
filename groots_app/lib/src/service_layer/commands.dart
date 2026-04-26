@@ -10,7 +10,11 @@ class RegisterCommand extends Command {
   final String username;
   final String email;
   final String password;
-  RegisterCommand({required this.username, required this.email, required this.password});
+  RegisterCommand({
+    required this.username,
+    required this.email,
+    required this.password,
+  });
 }
 
 class LogoutCommand extends Command {}
@@ -35,6 +39,8 @@ class PinTrackCommand extends Command {
 // ── Album commands ─────────────────────────────────────────────────────────
 
 class LoadAlbumsCommand extends Command {}
+
+class LoadGenresCommand extends Command {}
 
 class CreateAlbumCommand extends Command {
   final String title;
@@ -123,7 +129,10 @@ class AddTrackToPlaylistCommand extends Command {
 class RemoveTrackFromPlaylistCommand extends Command {
   final String playlistId;
   final String trackId;
-  RemoveTrackFromPlaylistCommand({required this.playlistId, required this.trackId});
+  RemoveTrackFromPlaylistCommand({
+    required this.playlistId,
+    required this.trackId,
+  });
 }
 
 // ── Admin commands ─────────────────────────────────────────────────────────
