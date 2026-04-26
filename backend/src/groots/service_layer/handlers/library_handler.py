@@ -54,31 +54,40 @@ async def _run_fingerprint_pipeline(
     content: bytes,
     mime: str,
     uow: AbstractUnitOfWork,
-) -> tuple[int, str | None, str | None]:
+) -> tuple[int, str | None, str | None, str | None]:
     """
     Fingerprint the audio and compare against existing fingerprints.
 
-    Returns (duration_seconds, fingerprint_hex, matched_central_fp_id).
-    matched_central_fp_id is set when the audio matches a central-library entry.
-    Fingerprint generation failure is soft – we log and continue.
+    Returns (duration_seconds, fingerprint_hex, matched_central_fp_id, matched_user_fp_id).
+    Central match takes priority; user-pool match is only set when central is None.
+    Fingerprint generation failure is soft – returns (0, None, None, None).
     """
     suffix = _ext_for_mime(mime)
     try:
         duration, fp_hex = await uow.fingerprinter.fingerprint(content, suffix=suffix)
     except Exception:
-        return 0, None, None
+        return 0, None, None, None
 
-    # Check central library first (higher priority)
+    # Priority 1: central library
     central_cands = await uow.fingerprints.find_central_candidates(duration)
-    matched_central_id = None
     if central_cands:
         best_id, _ = uow.fingerprinter.best_match(
             fp_hex, [(c.id, c.fingerprint_hex) for c in central_cands]
         )
         if best_id:
-            matched_central_id = best_id
+            return duration, fp_hex, best_id, None
 
-    return duration, fp_hex, matched_central_id
+    # Priority 2: user fingerprint pool
+    all_cands = await uow.fingerprints.find_candidates(duration)
+    non_central = [c for c in all_cands if not c.is_central]
+    if non_central:
+        best_id, _ = uow.fingerprinter.best_match(
+            fp_hex, [(c.id, c.fingerprint_hex) for c in non_central]
+        )
+        if best_id:
+            return duration, fp_hex, None, best_id
+
+    return duration, fp_hex, None, None
 
 
 async def _get_album_from_fingerprint_match(
@@ -89,36 +98,9 @@ async def _get_album_from_fingerprint_match(
     return fp.album_id if fp else None
 
 
-async def _match_user_fingerprint(
-    fp_hex: str, duration: int, uow: AbstractUnitOfWork
-) -> tuple[str | None, str | None]:
-    """
-    Search non-central fingerprints for a match.
-    Returns (album_id, album_title_hint) from the best matching record.
-    """
-    all_cands = await uow.fingerprints.find_candidates(duration)
-    non_central = [c for c in all_cands if not c.is_central]
-    if not non_central:
-        return None, None
-
-    best_id, _ = uow.fingerprinter.best_match(
-        fp_hex, [(c.id, c.fingerprint_hex) for c in non_central]
-    )
-    if not best_id:
-        return None, None
-
-    album_id = await _get_album_from_fingerprint_match(best_id, uow)
-    title_hint: str | None = None
-    if album_id:
-        fp_rec = await uow.fingerprints.get(best_id)
-        title_hint = fp_rec.title if fp_rec else None
-    return album_id, title_hint
-
-
 async def _resolve_album_id(
-    fp_hex: str | None,
-    duration: int,
     matched_central_id: str | None,
+    matched_user_fp_id: str | None,
     meta_album: str | None,
     artist: str,
     created_by: str,
@@ -127,7 +109,7 @@ async def _resolve_album_id(
     """
     Determine (album_id, album_title, promote_to_central) using three strategies:
       1. Central-library fingerprint match
-      2. Any-user fingerprint match
+      2. User-pool fingerprint match
       3. Embedded album tag  →  find-or-create global album
 
     promote_to_central=True means the album was brand-new (created via Priority 3)
@@ -143,9 +125,11 @@ async def _resolve_album_id(
             return album_id, album_title, False
 
     # Priority 2: user fingerprint pool
-    if fp_hex:
-        album_id, title_hint = await _match_user_fingerprint(fp_hex, duration, uow)
+    if matched_user_fp_id:
+        album_id = await _get_album_from_fingerprint_match(matched_user_fp_id, uow)
         if album_id:
+            fp_rec = await uow.fingerprints.get(matched_user_fp_id)
+            title_hint = fp_rec.title if fp_rec else None
             return album_id, album_title or title_hint, False
 
     # Priority 3: embedded tag → find-or-create
@@ -245,22 +229,39 @@ async def handle_upload_track(cmd: UploadTrack, uow: AbstractUnitOfWork) -> dict
         track_number = meta.track_number
 
         # ── 3. Fingerprint + match ───────────────────────────────────────────
-        duration, fp_hex, matched_central_id = await _run_fingerprint_pipeline(
-            cmd.content, cmd.mime_type, uow
+        duration, fp_hex, matched_central_id, matched_user_fp_id = (
+            await _run_fingerprint_pipeline(cmd.content, cmd.mime_type, uow)
         )
 
         # ── 4. Resolve album ─────────────────────────────────────────────────
         album_id, album_title, promote_to_central = await _resolve_album_id(
-            fp_hex=fp_hex,
-            duration=duration or 0,
             matched_central_id=matched_central_id,
+            matched_user_fp_id=matched_user_fp_id,
             meta_album=meta.album,
             artist=artist,
             created_by=cmd.user_id,
             uow=uow,
         )
 
-        # ── 5. Persist track ─────────────────────────────────────────────────
+        # ── 5. Persist fingerprint (if we got one and it's genuinely new) ────
+        # Skip when any existing fingerprint already covers this audio, to avoid
+        # accumulating duplicates from repeated uploads of the same track.
+        existing_fp_id = matched_central_id or matched_user_fp_id
+        if fp_hex and not existing_fp_id:
+            fp_record = TrackFingerprint(
+                fingerprint_hex=fp_hex,
+                duration_seconds=duration,
+                album_id=album_id,
+                title=title,
+                artist=artist,
+                is_central=promote_to_central,
+            )
+            await uow.fingerprints.add(fp_record)
+            fp_id: str | None = fp_record.id
+        else:
+            fp_id = existing_fp_id
+
+        # ── 6. Persist track ─────────────────────────────────────────────────
         track = Track(
             user_id=cmd.user_id,
             cid=cid,
@@ -275,24 +276,10 @@ async def handle_upload_track(cmd: UploadTrack, uow: AbstractUnitOfWork) -> dict
             genre=genre,
             mime_type=cmd.mime_type,
             pinned=True,
+            fingerprint_id=fp_id,
             matched_central_id=matched_central_id,
         )
         await uow.tracks.add(track)
-
-        # ── 6. Persist fingerprint (if we got one and it's new) ───────────────
-        # promote_to_central=True when this upload introduced a brand-new album
-        # via embedded metadata; storing it as central means every future user
-        # who uploads the same audio will be auto-matched without any admin action.
-        if fp_hex and not matched_central_id:
-            fp_record = TrackFingerprint(
-                fingerprint_hex=fp_hex,
-                duration_seconds=duration,
-                album_id=album_id,
-                title=title,
-                artist=artist,
-                is_central=promote_to_central,
-            )
-            await uow.fingerprints.add(fp_record)
 
         user.used_storage_bytes += cmd.file_size_bytes
         await uow.users.update(user)

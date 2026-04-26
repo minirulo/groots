@@ -20,5 +20,6 @@ class Track:
     genre: str | None = None
     mime_type: str = "audio/mpeg"
     pinned: bool = False  # True when central node has pinned the CID
+    fingerprint_id: str | None = None  # ID of the TrackFingerprint record for this track
     matched_central_id: str | None = None  # fingerprint ID of central match, if any
     created_at: datetime = field(default_factory=datetime.utcnow)

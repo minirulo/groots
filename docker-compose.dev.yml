@@ -5,7 +5,7 @@ services:
       context: ./backend
       target: api-dev
     ports:
-      - "8001:8000"
+      - "8001:80"
     volumes:
       - ./backend/src:/app
     env_file:
@@ -25,7 +25,7 @@ services:
       ipfs-cluster:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8001/health" ]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -43,7 +43,7 @@ services:
     volumes:
       - mongo_data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -65,7 +65,7 @@ services:
     environment:
       IPFS_PROFILE: server
     healthcheck:
-      test: ["CMD", "ipfs", "id"]
+      test: [ "CMD", "ipfs", "id" ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -96,7 +96,7 @@ services:
     volumes:
       - cluster_data:/data/ipfs-cluster
     healthcheck:
-      test: ["CMD", "ipfs-cluster-ctl", "id"]
+      test: [ "CMD", "ipfs-cluster-ctl", "id" ]
       interval: 10s
       timeout: 5s
       retries: 10

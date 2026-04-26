@@ -19,19 +19,21 @@ COPY src/pyproject.toml src/poetry.lock* ./
 # ── dev: all deps including test/lint ──────────────────────────────────────────
 FROM base AS backend-dev
 RUN /opt/poetry/bin/poetry install --no-root
+COPY ./scripts/ /
+RUN chmod 777 /start-reload.sh
 
 # ── prod: runtime deps only ────────────────────────────────────────────────────
 FROM base AS backend-prod
 RUN /opt/poetry/bin/poetry install --no-root --without dev
+COPY ./scripts/ /
+RUN chmod 777 /start.sh
 
 # ── api (dev) ──────────────────────────────────────────────────────────────────
 FROM backend-dev AS api-dev
 COPY src/ .
-CMD ["uvicorn", "groots.entrypoints.api.main:app", \
-     "--host", "0.0.0.0", "--port", "8000", "--reload"]
+ENTRYPOINT [ "/start-reload.sh" ]
 
 # ── api (prod) ─────────────────────────────────────────────────────────────────
 FROM backend-prod AS api-prod
 COPY src/ .
-CMD ["uvicorn", "groots.entrypoints.api.main:app", \
-     "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+ENTRYPOINT [ "/start.sh" ]
