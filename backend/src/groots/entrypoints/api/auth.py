@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import bcrypt
@@ -10,6 +11,7 @@ from groots.config import settings
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_STR}/auth/login")
 
 
+@dataclass
 class OAuthUser:
     user_id: str
     email: str
