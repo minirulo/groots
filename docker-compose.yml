@@ -4,3 +4,5 @@ services:
     build:
       context: ./backend
       target: api-prod
+      args:
+        - VERSION=${API_VERSION:-latest}

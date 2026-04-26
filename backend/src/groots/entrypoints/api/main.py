@@ -29,7 +29,7 @@ container.wire(
 app = FastAPI(
     title="Groots",
     description="Decentralized personal music streaming platform",
-    version="0.1.0",
+    version=settings.API_VERSION,
     docs_url=f"{settings.API_STR}/docs",
     redoc_url=f"{settings.API_STR}/redoc",
     openapi_url=f"{settings.API_STR}/openapi.json",

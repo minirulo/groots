@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     API_PORT: int = 8000
     ENVIRONMENT: str = "local"
     DEBUG: bool = False
+    API_VERSION: str = "latest"
 
     # JWT
     JWT_SECRET_KEY: str = "change-me-in-production"
