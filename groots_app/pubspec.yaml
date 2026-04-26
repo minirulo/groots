@@ -1,0 +1,51 @@
+name: Groots
+description: Decentralized personal music streaming platform
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management
+  flutter_bloc: ^9.1.1
+  bloc: ^9.0.0
+  equatable: ^2.0.5
+  get: ^4.6.6
+
+  # HTTP
+  http: ^1.2.2
+  http_interceptor: ^2.0.0-beta.8
+
+  # Secure storage (Keychain on macOS)
+  flutter_secure_storage: ^9.2.2
+
+  # File system (directory picker for sync)
+  file_picker: ^10.3.2
+  path: ^1.9.0
+  path_provider: ^2.1.4
+
+  # Audio playback
+  just_audio: ^0.9.40
+  audio_service: ^0.18.15
+
+  # Bottom sheet
+  modal_bottom_sheet: ^3.0.0
+
+  # Utils
+  intl: ^0.20.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  mockito: ^5.4.4
+  build_runner: ^2.4.13
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/swarm.key

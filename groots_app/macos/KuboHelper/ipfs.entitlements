@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- ipfs runs as a child of KuboHelper and inherits its sandbox.
+	     Carrying app-sandbox=true here causes macOS to attempt its own
+	     container initialisation (identifier "ipfs" has no reverse-DNS bundle
+	     ID), which fails immediately with SIGTRAP before any output.
+	     Network entitlements are still declared so they are visible to
+	     App Store static analysis of the parent bundle. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.network.server</key>
+	<true/>
+</dict>
+</plist>
