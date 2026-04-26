@@ -434,12 +434,11 @@ class _AlbumsViewState extends State<AlbumsView> {
           track: t,
           showLibraryActions: true,
           onPlay: () => _playFrom(tracks, i),
-          onPin: () => context.read<LibraryBloc>().add(
-                LibraryTrackPinRequested(t.id),
-              ),
+          onPin: () =>
+              context.read<LibraryBloc>().add(LibraryTrackPinRequested(t.id)),
           onDelete: () => context.read<LibraryBloc>().add(
-                LibraryTrackRemoveRequested(t.id),
-              ),
+            LibraryTrackRemoveRequested(t.id),
+          ),
         );
       },
     );

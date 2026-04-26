@@ -18,11 +18,11 @@ class Messagebus {
     required AlbumHandler albumHandler,
     required PlaylistHandler playlistHandler,
     required AdminHandler adminHandler,
-  })  : _authHandler = authHandler,
-        _libraryHandler = libraryHandler,
-        _albumHandler = albumHandler,
-        _playlistHandler = playlistHandler,
-        _adminHandler = adminHandler;
+  }) : _authHandler = authHandler,
+       _libraryHandler = libraryHandler,
+       _albumHandler = albumHandler,
+       _playlistHandler = playlistHandler,
+       _adminHandler = adminHandler;
 
   Future<T> handle<T>(Command command) async {
     return switch (command) {
@@ -38,16 +38,25 @@ class Messagebus {
       CreateAlbumCommand() => await _albumHandler.createAlbum(command) as T,
       UpdateAlbumCommand() => await _albumHandler.updateAlbum(command) as T,
       DeleteAlbumCommand() => await _albumHandler.deleteAlbum(command) as T,
-      AssignTrackToAlbumCommand() => await _albumHandler.assignTrack(command) as T,
-      UnassignTrackFromAlbumCommand() => await _albumHandler.unassignTrack(command) as T,
+      AssignTrackToAlbumCommand() =>
+        await _albumHandler.assignTrack(command) as T,
+      UnassignTrackFromAlbumCommand() =>
+        await _albumHandler.unassignTrack(command) as T,
       LoadPlaylistsCommand() => await _playlistHandler.loadPlaylists() as T,
-      CreatePlaylistCommand() => await _playlistHandler.createPlaylist(command) as T,
-      RenamePlaylistCommand() => await _playlistHandler.renamePlaylist(command) as T,
-      DeletePlaylistCommand() => await _playlistHandler.deletePlaylist(command) as T,
-      AddTrackToPlaylistCommand() => await _playlistHandler.addTrack(command) as T,
-      RemoveTrackFromPlaylistCommand() => await _playlistHandler.removeTrack(command) as T,
-      LoadCentralLibraryCommand() => await _adminHandler.loadCentralLibrary() as T,
-      IngestCentralTrackCommand() => await _adminHandler.ingestTrack(command) as T,
+      CreatePlaylistCommand() =>
+        await _playlistHandler.createPlaylist(command) as T,
+      RenamePlaylistCommand() =>
+        await _playlistHandler.renamePlaylist(command) as T,
+      DeletePlaylistCommand() =>
+        await _playlistHandler.deletePlaylist(command) as T,
+      AddTrackToPlaylistCommand() =>
+        await _playlistHandler.addTrack(command) as T,
+      RemoveTrackFromPlaylistCommand() =>
+        await _playlistHandler.removeTrack(command) as T,
+      LoadCentralLibraryCommand() =>
+        await _adminHandler.loadCentralLibrary() as T,
+      IngestCentralTrackCommand() =>
+        await _adminHandler.ingestTrack(command) as T,
       SearchAlbumsCommand() => await _adminHandler.searchAlbums(command) as T,
       _ => throw UnimplementedError('No handler for ${command.runtimeType}'),
     };
