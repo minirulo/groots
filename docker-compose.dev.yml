@@ -11,14 +11,14 @@ services:
     env_file:
       - .config/.env.dev
     environment:
-      - MONGO_SERVER
+      MONGO_SERVER: db
       # Route all IPFS operations through the cluster proxy (port 9095).
       # The proxy is Kubo-API-compatible so IPFSClient needs no changes;
       # it also intercepts pin/add calls to track them cluster-side.
-      - IPFS_API_HOST
-      - IPFS_API_PORT
+      IPFS_API_HOST: ipfs-cluster
       # Content is still served directly from the Kubo gateway.
-      - IPFS_GATEWAY_HOST
+      IPFS_GATEWAY_HOST: ipfs-cluster
+      IPFS_KUBO_HOST: ipfs
     depends_on:
       db:
         condition: service_healthy
