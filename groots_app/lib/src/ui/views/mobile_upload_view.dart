@@ -21,7 +21,15 @@ class _MobileUploadViewState extends State<MobileUploadView> {
   bool _uploading = false;
   String? _status;
 
-  static const _audioExtensions = ['mp3', 'flac', 'aac', 'ogg', 'wav', 'm4a', 'opus'];
+  static const _audioExtensions = [
+    'mp3',
+    'flac',
+    'aac',
+    'ogg',
+    'wav',
+    'm4a',
+    'opus',
+  ];
 
   static const _mimeMap = {
     'mp3': 'audio/mpeg',
@@ -96,7 +104,11 @@ class _MobileUploadViewState extends State<MobileUploadView> {
       await showDialog<void>(
         context: context,
         builder: (ctx) => AlertDialog(
-          icon: const Icon(Icons.warning_amber_rounded, size: 40, color: Colors.orange),
+          icon: const Icon(
+            Icons.warning_amber_rounded,
+            size: 40,
+            color: Colors.orange,
+          ),
           title: const Text('No CD metadata found'),
           content: Text(
             '$cdWeak track${cdWeak == 1 ? '' : 's'} had no ISRC, MCN or ripper '
