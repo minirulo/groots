@@ -360,6 +360,14 @@ class IpfsLocalNode extends GetxService {
       ], environment: env);
     }
 
+    // Gateway port varies per build flavour (dev=8180, prod=8280). Apply every
+    // launch so switching between builds self-corrects without a repo wipe.
+    await Process.run(ipfsBin, [
+      'config',
+      'Addresses.Gateway',
+      '/ip4/127.0.0.1/tcp/$_gatewayPort',
+    ], environment: env);
+
     // Applied every launch — idempotent. Kubo 0.34+ defaults are incompatible
     // with swarm.key private networks: AutoTLS connection-gates peers without
     // ACME certs (blocks the Docker node), Websocket conflicts with PNET,
