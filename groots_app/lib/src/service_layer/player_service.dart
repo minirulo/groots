@@ -13,6 +13,7 @@ class PlayerService extends GetxService {
   final RxBool hasNext = false.obs;
   final RxBool hasPrevious = false.obs;
   final RxBool isRepeating = false.obs;
+  final RxBool isBuffering = false.obs;
   final RxList<QueueItem> queue = <QueueItem>[].obs;
   final RxInt queueCurrentIndex = 0.obs;
   final RxInt queueNumManuallyAdded = 0.obs;
@@ -26,26 +27,40 @@ class PlayerService extends GetxService {
       isPlaying.value = state.playing;
       _sync();
     });
-    _handler.positionStream.listen((pos) => position.value = pos);
+    _handler.bufferingStream.listen((buffering) => isBuffering.value = buffering);
+    _handler.positionStream.listen((pos) {
+      if (!isBuffering.value) position.value = pos;
+    });
     _handler.durationStream.listen((d) => duration.value = d ?? Duration.zero);
     _handler.mediaItem.listen((_) => _sync());
   }
 
   /// Play a single track (no queue context — no next/previous).
   Future<void> play(Track track, String streamUrl) async {
-    await _handler.loadQueue([(track: track, url: streamUrl)], 0);
+    await _handler.loadQueue([(track: track, url: streamUrl, artUri: null)], 0);
     _sync();
   }
 
   /// Play [tracks] as a queue starting at [startIndex].
   /// [urlBuilder] maps each track to its stream URL.
+  /// [artUriBuilder] optionally maps each track to a cover art URL for the
+  /// lock screen / notification.
   Future<void> playQueue(
     List<Track> tracks,
     int startIndex,
-    String Function(Track) urlBuilder,
-  ) async {
+    String Function(Track) urlBuilder, {
+    String? Function(Track)? artUriBuilder,
+  }) async {
     await _handler.loadQueue(
-      tracks.map((t) => (track: t, url: urlBuilder(t))).toList(),
+      tracks
+          .map(
+            (t) => (
+              track: t,
+              url: urlBuilder(t),
+              artUri: artUriBuilder?.call(t),
+            ),
+          )
+          .toList(),
       startIndex,
     );
     _sync();
@@ -54,7 +69,7 @@ class PlayerService extends GetxService {
   /// Enqueue [track] to play after any previously queued manual tracks,
   /// before the album remainder.
   void addToQueue(Track track, String url) {
-    _handler.addNextInQueue((track: track, url: url));
+    _handler.addNextInQueue((track: track, url: url, artUri: null));
     _sync();
   }
 
@@ -68,6 +83,10 @@ class PlayerService extends GetxService {
 
   Future<void> next() => _handler.skipToNext();
   Future<void> previous() => _handler.skipToPrevious();
+  Future<void> skipToIndex(int index) async {
+    await _handler.skipToQueueIndex(index);
+    _sync();
+  }
 
   void toggleRepeat() {
     _handler.toggleRepeat();
