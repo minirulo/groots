@@ -30,6 +30,8 @@ class AddTrack:
     genre: str | None = None
     mime_type: str = "audio/mpeg"
     source: str | None = None
+    disc_number: int | None = None
+    side: str | None = None
 
 
 @dataclass
@@ -103,6 +105,8 @@ class AssignTrackToAlbum:
     track_id: str
     album_id: str
     track_number: int | None = None
+    disc_number: int | None = None
+    side: str | None = None
 
 
 @dataclass

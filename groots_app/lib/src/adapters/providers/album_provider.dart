@@ -59,11 +59,18 @@ class AlbumProvider {
     String albumId,
     String trackId, {
     int? trackNumber,
+    int? discNumber,
+    String? side,
   }) async {
     final res = await _client.post(
       Uri.parse('$_base/albums/$albumId/tracks'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'track_id': trackId, 'track_number': trackNumber}),
+      body: jsonEncode({
+        'track_id': trackId,
+        'track_number': trackNumber,
+        'disc_number': discNumber,
+        'side': side,
+      }),
     );
     if (res.statusCode != 200) throw Exception(res.body);
   }

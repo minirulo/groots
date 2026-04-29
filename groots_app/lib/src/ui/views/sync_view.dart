@@ -85,6 +85,7 @@ class _SyncViewState extends State<SyncView> {
   Album? _resolvedAlbum;
 
   MusicSource? _source;
+  int? _discNumber;
 
   Uint8List? _coverBytes;
   String? _coverMime;
@@ -183,6 +184,7 @@ class _SyncViewState extends State<SyncView> {
         ..addAll(files.map((f) => _SyncEntry(file: f)));
       _selectedDir = dir;
       _source = source;
+      _discNumber = null;
       _albumResolved = false;
       _albumId = null;
       _resolvedAlbum = null;
@@ -241,6 +243,7 @@ class _SyncViewState extends State<SyncView> {
         ..addAll(files.map((f) => _SyncEntry(file: f)));
       _selectedDir = null;
       _source = source;
+      _discNumber = null;
       _albumResolved = false;
       _albumId = null;
       _resolvedAlbum = null;
@@ -448,6 +451,7 @@ class _SyncViewState extends State<SyncView> {
       if (_albumId != null) 'album_id': _albumId,
       if (parsed.trackNumber != null) 'track_number': parsed.trackNumber,
       if (_source != null) 'source': _source!.apiValue,
+      if (_discNumber != null) 'disc_number': _discNumber,
     };
 
     final trackId = await bus.handle<String>(AddTrackCommand(payload));
@@ -490,6 +494,7 @@ class _SyncViewState extends State<SyncView> {
           albumId: _albumId!,
           trackId: result['track_id'] as String,
           trackNumber: parsed.trackNumber,
+          discNumber: _discNumber,
         ),
       );
     }
@@ -620,6 +625,10 @@ class _SyncViewState extends State<SyncView> {
             onChangeAlbum: _entries.isNotEmpty && !_syncing && !_searchingAlbum
                 ? _showAlbumPickerSheet
                 : null,
+            discNumber: _discNumber,
+            onDiscNumberChanged: _syncing
+                ? null
+                : (v) => setState(() => _discNumber = v),
           ),
 
         // Track list
@@ -692,6 +701,8 @@ class _StatusBar extends StatelessWidget {
   final bool albumResolved;
   final Album? resolvedAlbum;
   final VoidCallback? onChangeAlbum;
+  final int? discNumber;
+  final ValueChanged<int?>? onDiscNumberChanged;
 
   const _StatusBar({
     required this.source,
@@ -699,6 +710,8 @@ class _StatusBar extends StatelessWidget {
     required this.albumResolved,
     required this.resolvedAlbum,
     this.onChangeAlbum,
+    this.discNumber,
+    this.onDiscNumberChanged,
   });
 
   @override
@@ -791,6 +804,49 @@ class _StatusBar extends StatelessWidget {
             const SizedBox(height: 4),
           ],
           albumContent,
+          // Disc picker — shown only when an album is resolved
+          if (albumResolved && resolvedAlbum != null) ...[
+            const SizedBox(height: 6),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  Text(
+                    'Disc:',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  ...List.generate(4, (i) => i + 1).map(
+                    (d) => Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: ChoiceChip(
+                        label: Text('$d'),
+                        selected: discNumber == d,
+                        visualDensity: VisualDensity.compact,
+                        onSelected: onDiscNumberChanged == null
+                            ? null
+                            : (selected) =>
+                                onDiscNumberChanged!(selected ? d : null),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 2),
+                    child: Text(
+                      discNumber == null
+                          ? '(single disc)'
+                          : '',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );

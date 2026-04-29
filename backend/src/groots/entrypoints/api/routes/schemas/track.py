@@ -16,6 +16,8 @@ class AddTrackRequest(BaseModel):
     genre: str | None = None
     mime_type: str = "audio/mpeg"
     source: str | None = None
+    disc_number: int | None = None
+    side: str | None = None
 
 
 class CdVerificationResponse(BaseModel):
@@ -41,6 +43,8 @@ class TrackResponse(BaseModel):
     pinned: bool
     matched_central_id: str | None
     source: str | None
+    disc_number: int | None
+    side: str | None
     created_at: datetime
 
 

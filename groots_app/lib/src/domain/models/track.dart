@@ -13,6 +13,8 @@ class Track {
   final String mimeType;
   final bool pinned;
   final String? matchedCentralId;
+  final int? discNumber;
+  final String? side;
 
   const Track({
     required this.id,
@@ -29,6 +31,8 @@ class Track {
     required this.mimeType,
     required this.pinned,
     this.matchedCentralId,
+    this.discNumber,
+    this.side,
   });
 
   factory Track.fromJson(Map<String, dynamic> json) => Track(
@@ -46,6 +50,8 @@ class Track {
         mimeType: json['mime_type'] as String,
         pinned: json['pinned'] as bool,
         matchedCentralId: json['matched_central_id'] as String?,
+        discNumber: json['disc_number'] as int?,
+        side: json['side'] as String?,
       );
 
   String get durationFormatted {

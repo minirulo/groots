@@ -425,16 +425,77 @@ class _AlbumsViewState extends State<AlbumsView> {
         });
       }
     }
+
+    final hasMultiDisc = tracks.any((t) => t.discNumber != null);
+    final hasSides = tracks.any((t) => t.side != null);
+
+    // Build a flat list of items: String = section header, Track = track tile.
+    final items = <Object>[];
+
+    if (!hasMultiDisc && !hasSides) {
+      items.addAll(tracks);
+    } else {
+      void addSection(String label, List<Track> sectionTracks) {
+        if (label.isNotEmpty) items.add(label);
+        items.addAll(
+          sectionTracks
+            ..sort((a, b) =>
+                (a.trackNumber ?? 999).compareTo(b.trackNumber ?? 999)),
+        );
+      }
+
+      // Collect unique disc keys, sorted (null first so ungrouped tracks lead).
+      final discKeys = ({...tracks.map((t) => t.discNumber)}.toList()
+        ..sort((a, b) {
+          if (a == null && b == null) return 0;
+          if (a == null) return -1;
+          if (b == null) return 1;
+          return a.compareTo(b);
+        }));
+
+      for (final disc in discKeys) {
+        final discTracks = tracks.where((t) => t.discNumber == disc).toList();
+
+        if (!hasSides) {
+          final discLabel = disc != null ? 'Disc $disc' : '';
+          addSection(discLabel, discTracks);
+        } else {
+          final sideKeys = ({...discTracks.map((t) => t.side)}.toList()
+            ..sort((a, b) {
+              if (a == null && b == null) return 0;
+              if (a == null) return -1;
+              if (b == null) return 1;
+              return a.compareTo(b);
+            }));
+
+          for (final side in sideKeys) {
+            final sideTracks =
+                discTracks.where((t) => t.side == side).toList();
+            final parts = [
+              if (disc != null) 'Disc $disc',
+              if (side != null) 'Side $side',
+            ];
+            addSection(parts.join(' · '), sideTracks);
+          }
+        }
+      }
+    }
+
     return ListView.builder(
       controller: _trackScrollController,
-      itemCount: tracks.length,
+      itemCount: items.length,
       itemBuilder: (context, i) {
-        final t = tracks[i];
+        final item = items[i];
+        if (item is String) {
+          return _TrackSectionLabel(label: item);
+        }
+        final t = item as Track;
+        final tIdx = tracks.indexOf(t);
         return TrackTile(
           track: t,
           showLibraryActions: true,
-          onTap: t.pinned ? () => _playFrom(tracks, i) : null,
-          onPlay: () => _playFrom(tracks, i),
+          onTap: t.pinned ? () => _playFrom(tracks, tIdx) : null,
+          onPlay: () => _playFrom(tracks, tIdx),
           onPin: () =>
               context.read<LibraryBloc>().add(LibraryTrackPinRequested(t.id)),
           onDelete: () => context.read<LibraryBloc>().add(
@@ -703,6 +764,26 @@ class _AlbumHeader extends StatelessWidget {
 }
 
 // ── Shared ────────────────────────────────────────────────────────────────────
+
+class _TrackSectionLabel extends StatelessWidget {
+  final String label;
+  const _TrackSectionLabel({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+          color: Theme.of(context).colorScheme.primary,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+}
 
 class _AlbumPlaceholder extends StatelessWidget {
   const _AlbumPlaceholder();
