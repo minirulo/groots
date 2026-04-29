@@ -433,6 +433,7 @@ class _AlbumsViewState extends State<AlbumsView> {
         return TrackTile(
           track: t,
           showLibraryActions: true,
+          onTap: t.pinned ? () => _playFrom(tracks, i) : null,
           onPlay: () => _playFrom(tracks, i),
           onPin: () =>
               context.read<LibraryBloc>().add(LibraryTrackPinRequested(t.id)),
@@ -448,10 +449,14 @@ class _AlbumsViewState extends State<AlbumsView> {
     final playable = tracks.where((t) => t.pinned).toList();
     final adjusted = playable.indexWhere((t) => t.id == tracks[index].id);
     if (adjusted < 0) return;
+    final coverUrl = _selectedAlbum?.coverCid != null
+        ? Get.find<AlbumProvider>().coverUrl(_selectedAlbum!.coverCid!)
+        : null;
     Get.find<PlayerService>().playQueue(
       playable,
       adjusted,
       (t) => Get.find<IpfsLocalNode>().streamUrl(t.cid, t.mimeType),
+      artUriBuilder: coverUrl != null ? (_) => coverUrl : null,
     );
   }
 

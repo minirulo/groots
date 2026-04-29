@@ -60,7 +60,7 @@ class TrackTile extends StatelessWidget {
                   icon: const Icon(Icons.more_vert),
                   onSelected: (action) => _handleAction(context, action),
                   itemBuilder: (_) => _buildMenuItems(
-                    includePlay: true,
+                    includePlay: false,
                     includeLibraryActions: showLibraryActions,
                   ),
                 ),

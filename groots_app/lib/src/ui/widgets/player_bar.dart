@@ -129,13 +129,19 @@ class _MiniPlayer extends StatelessWidget {
                 ),
               ),
               Obx(
-                () => IconButton(
-                  icon: Icon(
-                    player.isPlaying.value ? Icons.pause : Icons.play_arrow,
-                  ),
-                  onPressed: player.togglePause,
-                  visualDensity: VisualDensity.compact,
-                ),
+                () => player.isBuffering.value
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : IconButton(
+                        icon: Icon(
+                          player.isPlaying.value ? Icons.pause : Icons.play_arrow,
+                        ),
+                        onPressed: player.togglePause,
+                        visualDensity: VisualDensity.compact,
+                      ),
               ),
               Obx(
                 () => IconButton(
@@ -445,20 +451,30 @@ class _PlayerContent extends StatelessWidget {
               ),
               Obx(
                 () => Container(
+                  width: 72,
+                  height: 72,
                   decoration: const BoxDecoration(
                     color: Colors.white,
                     shape: BoxShape.circle,
                   ),
-                  child: IconButton(
-                    iconSize: 44,
-                    color: Colors.black,
-                    icon: Icon(
-                      player.isPlaying.value
-                          ? Icons.pause_rounded
-                          : Icons.play_arrow_rounded,
-                    ),
-                    onPressed: player.togglePause,
-                  ),
+                  child: player.isBuffering.value
+                      ? const Padding(
+                          padding: EdgeInsets.all(20),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 3,
+                            color: Colors.black,
+                          ),
+                        )
+                      : IconButton(
+                          iconSize: 44,
+                          color: Colors.black,
+                          icon: Icon(
+                            player.isPlaying.value
+                                ? Icons.pause_rounded
+                                : Icons.play_arrow_rounded,
+                          ),
+                          onPressed: player.togglePause,
+                        ),
                 ),
               ),
               Obx(
@@ -479,17 +495,42 @@ class _PlayerContent extends StatelessWidget {
 
 // ── Queue view ────────────────────────────────────────────────────────────────
 
-class _QueueView extends StatelessWidget {
+class _QueueView extends StatefulWidget {
   final PlayerService player;
 
   const _QueueView({required this.player});
 
   @override
+  State<_QueueView> createState() => _QueueViewState();
+}
+
+class _QueueViewState extends State<_QueueView> {
+  final _scrollController = ScrollController();
+  int _lastIndex = -1;
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Obx(() {
-      final q = player.queue;
-      final cur = player.queueCurrentIndex.value;
-      final manual = player.queueNumManuallyAdded.value;
+      final q = widget.player.queue;
+      final cur = widget.player.queueCurrentIndex.value;
+      final manual = widget.player.queueNumManuallyAdded.value;
+
+      // Scroll back to top whenever the current track changes so the
+      // "Now Playing" section is always visible after a tap.
+      if (cur != _lastIndex) {
+        _lastIndex = cur;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_scrollController.hasClients) {
+            _scrollController.jumpTo(0);
+          }
+        });
+      }
 
       // Indices of upcoming sections
       final manualStart = cur + 1;
@@ -497,21 +538,22 @@ class _QueueView extends StatelessWidget {
       final albumStart = cur + manual + 1;
 
       return ListView(
+        controller: _scrollController,
         children: [
           _QueueSectionHeader('Now Playing'),
           if (cur >= 0 && cur < q.length)
-            _QueueTrackTile(item: q[cur], isCurrent: true),
+            _QueueTrackTile(item: q[cur], index: cur, player: widget.player, isCurrent: true),
 
           if (manual > 0) ...[
             _QueueSectionHeader('Next Up'),
             for (int i = manualStart; i <= manualEnd && i < q.length; i++)
-              _QueueTrackTile(item: q[i]),
+              _QueueTrackTile(item: q[i], index: i, player: widget.player),
           ],
 
           if (albumStart < q.length) ...[
             _QueueSectionHeader('From Album'),
             for (int i = albumStart; i < q.length; i++)
-              _QueueTrackTile(item: q[i]),
+              _QueueTrackTile(item: q[i], index: i, player: widget.player),
           ],
         ],
       );
@@ -542,15 +584,23 @@ class _QueueSectionHeader extends StatelessWidget {
 
 class _QueueTrackTile extends StatelessWidget {
   final QueueItem item;
+  final int index;
+  final PlayerService player;
   final bool isCurrent;
 
-  const _QueueTrackTile({required this.item, this.isCurrent = false});
+  const _QueueTrackTile({
+    required this.item,
+    required this.index,
+    required this.player,
+    this.isCurrent = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     final t = item.track;
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+      onTap: isCurrent ? null : () => player.skipToIndex(index),
       leading: isCurrent
           ? const Icon(Icons.graphic_eq, color: Colors.white, size: 20)
           : const Icon(Icons.music_note, color: Colors.white38, size: 20),

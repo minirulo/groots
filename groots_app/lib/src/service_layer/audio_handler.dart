@@ -8,29 +8,64 @@ import '../config/environment.dart';
 import '../domain/models/track.dart';
 import 'ipfs_local_node.dart';
 
-typedef QueueItem = ({Track track, String url});
+typedef QueueItem = ({Track track, String url, String? artUri});
+
+AudioPlayer _buildPlayer() => AudioPlayer(
+  audioLoadConfiguration: const AudioLoadConfiguration(
+    androidLoadControl: AndroidLoadControl(
+      minBufferDuration: Duration(seconds: 30),
+      maxBufferDuration: Duration(seconds: 120),
+      bufferForPlaybackDuration: Duration(seconds: 3),
+      bufferForPlaybackAfterRebufferDuration: Duration(seconds: 6),
+    ),
+    darwinLoadControl: DarwinLoadControl(
+      preferredForwardBufferDuration: Duration(seconds: 60),
+    ),
+  ),
+);
 
 class SoundNetAudioHandler extends BaseAudioHandler with SeekHandler {
-  AudioPlayer _player = AudioPlayer();
+  AudioPlayer _player = _buildPlayer();
   final List<QueueItem> _queue = [];
   int _currentIndex = -1;
   // How many manually-added items sit between current and album remainder.
   int _numManuallyAdded = 0;
   bool _repeat = false;
+  // While true, stream-listener broadcasts are suppressed so intermediate
+  // just_audio states (idle → loading → buffering) during a track transition
+  // don't overwrite the explicit "playing + loading" state we broadcast at the
+  // start of _playCurrentItem().
+  bool _transitioning = false;
 
   bool get isRepeating => _repeat;
   void toggleRepeat() => _repeat = !_repeat;
 
   SoundNetAudioHandler() {
-    _player.playingStream.listen((_) => _broadcastState());
+    _attachPlayerListeners();
+  }
+
+  void _attachPlayerListeners() {
+    _player.playingStream.listen((_) {
+      if (!_transitioning &&
+          _player.processingState != ProcessingState.completed) {
+        _broadcastState();
+      }
+    });
     _player.processingStateStream.listen((state) {
-      _broadcastState();
+      if (_transitioning) return;
       if (state == ProcessingState.completed) {
+        // Do not broadcast the completed state when there is a next track —
+        // that would signal audio_service to drop the foreground service before
+        // the new track starts.
         if (_repeat) {
           _playCurrentItem();
-        } else {
+        } else if (hasNext) {
           skipToNext();
+        } else {
+          _broadcastState();
         }
+      } else {
+        _broadcastState();
       }
     });
     _player.durationStream.listen((d) {
@@ -77,6 +112,15 @@ class SoundNetAudioHandler extends BaseAudioHandler with SeekHandler {
     if (_currentIndex < 0 || _currentIndex >= _queue.length) return;
     final item = _queue[_currentIndex];
     final t = item.track;
+
+    // Suppress all listener-driven broadcasts while we transition between
+    // tracks. just_audio fires idle → loading → buffering → ready as it loads
+    // the new URL, and each fires _broadcastState() which would overwrite the
+    // "playing + loading" state we set below.
+    _transitioning = true;
+
+    // Update the media item immediately so the lock screen / notification
+    // shows the new track title and artwork before the audio engine loads.
     mediaItem.add(
       MediaItem(
         id: t.id,
@@ -84,8 +128,32 @@ class SoundNetAudioHandler extends BaseAudioHandler with SeekHandler {
         artist: t.artist,
         album: t.album,
         duration: Duration(seconds: t.durationSeconds),
+        artUri: item.artUri != null ? Uri.tryParse(item.artUri!) : null,
       ),
     );
+
+    // Broadcast an active "playing + loading" state so the lock screen banner
+    // stays alive and reads "playing" (not "Not Playing") during the gap.
+    playbackState.add(
+      PlaybackState(
+        controls: [
+          MediaControl.skipToPrevious,
+          MediaControl.pause,
+          MediaControl.skipToNext,
+          MediaControl.stop,
+        ],
+        systemActions: const {
+          MediaAction.seek,
+          MediaAction.seekForward,
+          MediaAction.seekBackward,
+        },
+        androidCompactActionIndices: const [0, 1, 2],
+        playing: true,
+        updatePosition: Duration.zero,
+        processingState: AudioProcessingState.loading,
+      ),
+    );
+
     try {
       await _player.setUrl(item.url);
       await _player.play();
@@ -119,22 +187,34 @@ class SoundNetAudioHandler extends BaseAudioHandler with SeekHandler {
       } catch (e2) {
         debugPrint('[AudioHandler] central gateway also failed: $e2');
       }
+    } finally {
+      _transitioning = false;
+      // just_audio's play() blocks until the track ends, which means
+      // processingStateStream fired ProcessingState.completed while
+      // _transitioning was true and the listener returned early.
+      // Handle advancement here so we don't miss end-of-track.
+      if (_player.processingState == ProcessingState.completed) {
+        if (_repeat) {
+          _playCurrentItem();
+        } else if (hasNext) {
+          skipToNext();
+        } else {
+          _broadcastState();
+        }
+      } else {
+        _broadcastState();
+      }
     }
   }
 
+  Stream<bool> get bufferingStream => _player.processingStateStream.map(
+    (s) => s == ProcessingState.buffering || s == ProcessingState.loading,
+  );
+
   Future<void> _rebuildPlayer() async {
     await _player.dispose();
-    _player = AudioPlayer();
-    _player.playingStream.listen((_) => _broadcastState());
-    _player.processingStateStream.listen((state) {
-      _broadcastState();
-      if (state == ProcessingState.completed) skipToNext();
-    });
-    _player.durationStream.listen((d) {
-      final current = mediaItem.value;
-      if (current != null && d != null)
-        mediaItem.add(current.copyWith(duration: d));
-    });
+    _player = _buildPlayer();
+    _attachPlayerListeners();
   }
 
   @override
@@ -173,6 +253,13 @@ class SoundNetAudioHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> seek(Duration position) => _player.seek(position);
+
+  Future<void> skipToQueueIndex(int index) async {
+    if (index < 0 || index >= _queue.length || index == _currentIndex) return;
+    _currentIndex = index;
+    _numManuallyAdded = 0;
+    await _playCurrentItem();
+  }
 
   @override
   Future<void> skipToNext() async {
