@@ -438,9 +438,9 @@ class _AlbumsViewState extends State<AlbumsView> {
       void addSection(String label, List<Track> sectionTracks) {
         if (label.isNotEmpty) items.add(label);
         items.addAll(
-          sectionTracks
-            ..sort((a, b) =>
-                (a.trackNumber ?? 999).compareTo(b.trackNumber ?? 999)),
+          sectionTracks..sort(
+            (a, b) => (a.trackNumber ?? 999).compareTo(b.trackNumber ?? 999),
+          ),
         );
       }
 
@@ -469,8 +469,7 @@ class _AlbumsViewState extends State<AlbumsView> {
             }));
 
           for (final side in sideKeys) {
-            final sideTracks =
-                discTracks.where((t) => t.side == side).toList();
+            final sideTracks = discTracks.where((t) => t.side == side).toList();
             final parts = [
               if (disc != null) 'Disc $disc',
               if (side != null) 'Side $side',
