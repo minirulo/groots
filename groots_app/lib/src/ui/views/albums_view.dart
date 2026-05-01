@@ -336,19 +336,17 @@ class _AlbumsViewState extends State<AlbumsView> {
     final allTracks = _tracksFor(libraryState.tracks);
 
     // Unique disc numbers present in this album (sorted).
-    final discNumbers =
-        allTracks
-            .where((t) => t.discNumber != null)
-            .map((t) => t.discNumber!)
-            .toSet()
-            .toList()
-          ..sort();
+    final discNumbers = allTracks
+        .where((t) => t.discNumber != null)
+        .map((t) => t.discNumber!)
+        .toSet()
+        .toList()
+      ..sort();
     final hasMultiDisc = discNumbers.length > 1;
 
     // Which disc is shown; auto-select first when entering a multi-disc album.
-    final effectiveDisc = hasMultiDisc
-        ? (_selectedDisc ?? discNumbers.first)
-        : null;
+    final effectiveDisc =
+        hasMultiDisc ? (_selectedDisc ?? discNumbers.first) : null;
 
     // Tracks visible in the list (filtered when a disc is selected).
     final visibleTracks = effectiveDisc != null
@@ -504,9 +502,11 @@ class _AlbumsViewState extends State<AlbumsView> {
       for (final side in sideKeys) {
         if (side != null) items.add('Side $side');
         items.addAll(
-          tracks.where((t) => t.side == side).toList()..sort(
-            (a, b) => (a.trackNumber ?? 999).compareTo(b.trackNumber ?? 999),
-          ),
+          tracks.where((t) => t.side == side).toList()
+            ..sort(
+              (a, b) =>
+                  (a.trackNumber ?? 999).compareTo(b.trackNumber ?? 999),
+            ),
         );
       }
     }
