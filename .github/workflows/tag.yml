@@ -1,0 +1,32 @@
+name: Tag
+on:
+    workflow_dispatch:
+jobs:
+    tag:
+        name: New Tag
+        runs-on: [ "self-hosted", "Linux", "X64" ]
+        outputs:
+            tag: ${{ steps.bundleVersion.outputs.tag }}
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Check if bundle version is tagged
+              id: bundleVersion
+              working-directory: ./groots_app
+              run: |
+                  version=$(cat pubspec.yaml | yq '.version' | sed -e 's/^"//' -e 's/"$//')
+                  if ! git rev-parse "$version" >/dev/null 2>&1; then
+                      echo "Tagging version $version"
+                      echo "tag=$version" >> $GITHUB_OUTPUT
+                  else
+                      echo "Version $version already exists"
+                      echo "tag=null" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Create tag
+              if: ${{ steps.bundleVersion.outputs.tag != 'null' }}
+              run: |
+                  git tag ${{ steps.bundleVersion.outputs.tag }}
+                  git push origin ${{ steps.bundleVersion.outputs.tag }}
