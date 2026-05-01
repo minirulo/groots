@@ -1,6 +1,8 @@
 name: Tag
 on:
     workflow_dispatch:
+permissions:
+    contents: write
 jobs:
     tag:
         name: New Tag
