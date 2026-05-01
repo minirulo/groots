@@ -50,7 +50,7 @@ class _VinylSyncViewState extends State<VinylSyncView>
   List<Album> _libraryResults = [];
   Album? _existingAlbum;
   String _manualSide = 'A';
-  int _manualDisk = 1;
+  int? _manualDisk;
 
   // ── Recording ─────────────────────────────────────────────────────────────────
   final AudioRecorder _recorder = AudioRecorder();
@@ -190,6 +190,31 @@ class _VinylSyncViewState extends State<VinylSyncView>
     } finally {
       if (mounted) setState(() => _librarySearching = false);
     }
+  }
+
+  // ── Disc / side resolution ────────────────────────────────────────────────────
+
+  // Returns the side label to store on each uploaded track.
+  // Discogs flow uses _selectedSide; existing-album flow uses _manualSide.
+  String? _resolvedSide() {
+    if (_release != null) return _selectedSide;
+    if (_existingAlbum != null) return _manualSide;
+    return null;
+  }
+
+  // Returns the disc number to store on each uploaded track.
+  // null means single-disc album — no grouping header shown in the UI.
+  // Discogs flow: single vinyl (≤2 sides) → null; double vinyl → 1 or 2 from side position.
+  // Existing-album flow: driven by the user's manual disc picker.
+  int? _resolvedDiscNumber() {
+    if (_release != null && _selectedSide != null) {
+      final sides = _release!.availableSides;
+      if (sides.length <= 2) return null;
+      final idx = sides.indexOf(_selectedSide!);
+      return idx < 0 ? null : (idx ~/ 2) + 1;
+    }
+    if (_existingAlbum != null) return _manualDisk;
+    return null;
   }
 
   // ── Genre helpers ─────────────────────────────────────────────────────────────
@@ -549,7 +574,13 @@ class _VinylSyncViewState extends State<VinylSyncView>
         final trackId = result['track_id'] as String;
 
         if (albumId != null) {
-          await albumProvider.assignTrack(albumId, trackId, trackNumber: i + 1);
+          await albumProvider.assignTrack(
+            albumId,
+            trackId,
+            trackNumber: i + 1,
+            discNumber: _resolvedDiscNumber(),
+            side: _resolvedSide(),
+          );
         }
 
         // Pin to cluster — this triggers mfs_copy which makes the file
@@ -1034,7 +1065,7 @@ class _VinylSyncViewState extends State<VinylSyncView>
                   ),
                 ),
                 const SizedBox(width: 16),
-                const Text('Disk: '),
+                const Text('Disc: '),
                 const SizedBox(width: 6),
                 ...List.generate(4, (i) => i + 1).map(
                   (d) => Padding(
@@ -1042,7 +1073,8 @@ class _VinylSyncViewState extends State<VinylSyncView>
                     child: ChoiceChip(
                       label: Text('$d'),
                       selected: _manualDisk == d,
-                      onSelected: (_) => setState(() => _manualDisk = d),
+                      onSelected: (selected) =>
+                          setState(() => _manualDisk = selected ? d : null),
                     ),
                   ),
                 ),

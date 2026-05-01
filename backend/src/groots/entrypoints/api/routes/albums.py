@@ -204,6 +204,8 @@ async def assign_track(
                 track_id=body.track_id,
                 album_id=album_id,
                 track_number=body.track_number,
+                disc_number=body.disc_number,
+                side=body.side,
             )
         )
         return {"assigned": True}

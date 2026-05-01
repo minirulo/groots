@@ -39,3 +39,5 @@ class AlbumResponse(BaseModel):
 class AssignTrackRequest(BaseModel):
     track_id: str
     track_number: int | None = None
+    disc_number: int | None = None
+    side: str | None = None

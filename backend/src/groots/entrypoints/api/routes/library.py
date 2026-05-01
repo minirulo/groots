@@ -1,7 +1,7 @@
 import base64
 from typing import Annotated
 
-from dependency_injector.wiring import Provide, inject
+from dependency_injector.wiring import inject, Provide
 from fastapi import (
     APIRouter,
     Depends,
@@ -9,17 +9,18 @@ from fastapi import (
     Form,
     HTTPException,
     Response,
-    UploadFile,
-    status,
     Security,
+    status,
+    UploadFile,
 )
 from fastapi.responses import JSONResponse
 
 from groots.adapters.impl.metadata_extractor import MetadataExtractor
+from groots.config import settings
 from groots.domain.commands import AddTrack, PinTrack, RemoveTrack, UploadTrack
 from groots.domain.errors import GrootException
 from groots.entrypoints.api import views
-from groots.entrypoints.api.auth import OAuthUser, get_current_oauth_user
+from groots.entrypoints.api.auth import get_current_oauth_user, OAuthUser
 from groots.entrypoints.api.container import Container
 from groots.entrypoints.api.routes.schemas.track import (
     AddTrackRequest,
@@ -29,7 +30,6 @@ from groots.entrypoints.api.routes.schemas.track import (
 from groots.service_layer.errors import to_http_exception
 from groots.service_layer.messagebus import MessageBus
 from groots.service_layer.unit_of_work import AbstractUnitOfWork
-from groots.config import settings
 
 _COVER_READ_LIMIT = 1024 * 1024  # 1 MB — enough to reach any embedded cover
 
@@ -75,6 +75,8 @@ async def add_track(
                 genre=body.genre,
                 mime_type=body.mime_type,
                 source=body.source,
+                disc_number=body.disc_number,
+                side=body.side,
             )
         )
     except GrootException as e:

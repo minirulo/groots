@@ -23,4 +23,6 @@ class Track:
     fingerprint_id: str | None = None  # ID of the TrackFingerprint record for this track
     matched_central_id: str | None = None  # fingerprint ID of central match, if any
     source: str | None = None  # e.g. "cd", "vinyl", "digital_download", "streaming_purchase"
+    disc_number: int | None = None  # which disc/vinyl (1, 2…); null means single-disc album
+    side: str | None = None  # vinyl side ("A", "B", "C", "D"); null for CDs
     created_at: datetime = field(default_factory=datetime.utcnow)

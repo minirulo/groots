@@ -87,10 +87,14 @@ class AssignTrackToAlbumCommand extends Command {
   final String albumId;
   final String trackId;
   final int? trackNumber;
+  final int? discNumber;
+  final String? side;
   AssignTrackToAlbumCommand({
     required this.albumId,
     required this.trackId,
     this.trackNumber,
+    this.discNumber,
+    this.side,
   });
 }
 

@@ -39,17 +39,17 @@ abstract class BaseConfig {
 
 class DevConfig extends BaseConfig {
   @override
-  String get apiHost => '169.254.158.174:8001';
+  String get apiHost => '192.168.0.190:8001';
 
   @override
   String get appName => 'Groots Dev';
 
   @override
-  String get ipfsGatewayHost => '169.254.158.174:8080';
+  String get ipfsGatewayHost => '192.168.0.190:8080';
 
   @override
   // Same machine as the API — Docker exposes swarm on port 4001.
-  String get ipfsSwarmHost => '169.254.158.174';
+  String get ipfsSwarmHost => '192.168.0.190';
 }
 
 class ProdConfig extends BaseConfig {

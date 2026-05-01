@@ -33,7 +33,13 @@ class AlbumHandler {
       _provider.deleteAlbum(cmd.albumId);
 
   Future<void> assignTrack(AssignTrackToAlbumCommand cmd) => _provider
-      .assignTrack(cmd.albumId, cmd.trackId, trackNumber: cmd.trackNumber);
+      .assignTrack(
+        cmd.albumId,
+        cmd.trackId,
+        trackNumber: cmd.trackNumber,
+        discNumber: cmd.discNumber,
+        side: cmd.side,
+      );
 
   Future<void> unassignTrack(UnassignTrackFromAlbumCommand cmd) =>
       _provider.unassignTrack(cmd.albumId, cmd.trackId);

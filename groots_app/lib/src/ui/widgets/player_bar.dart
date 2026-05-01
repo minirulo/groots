@@ -507,11 +507,25 @@ class _QueueView extends StatefulWidget {
 class _QueueViewState extends State<_QueueView> {
   final _scrollController = ScrollController();
   int _lastIndex = -1;
+  Set<int> _animatingOut = {};
 
   @override
   void dispose() {
     _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _jumpTo(int targetIndex) async {
+    final cur = widget.player.queueCurrentIndex.value;
+    final skippedCount = targetIndex - cur - 1;
+    if (skippedCount > 0) {
+      setState(() {
+        _animatingOut = {for (int i = cur + 1; i < targetIndex; i++) i};
+      });
+      await Future.delayed(const Duration(milliseconds: 260));
+    }
+    widget.player.skipToIndex(targetIndex);
+    if (mounted) setState(() => _animatingOut = {});
   }
 
   @override
@@ -542,18 +556,38 @@ class _QueueViewState extends State<_QueueView> {
         children: [
           _QueueSectionHeader('Now Playing'),
           if (cur >= 0 && cur < q.length)
-            _QueueTrackTile(item: q[cur], index: cur, player: widget.player, isCurrent: true),
+            _QueueTrackTile(
+              key: ValueKey(cur),
+              item: q[cur],
+              index: cur,
+              player: widget.player,
+              isCurrent: true,
+            ),
 
           if (manual > 0) ...[
             _QueueSectionHeader('Next Up'),
             for (int i = manualStart; i <= manualEnd && i < q.length; i++)
-              _QueueTrackTile(item: q[i], index: i, player: widget.player),
+              _QueueTrackTile(
+                key: ValueKey(i),
+                item: q[i],
+                index: i,
+                player: widget.player,
+                isAnimatingOut: _animatingOut.contains(i),
+                onTap: () => _jumpTo(i),
+              ),
           ],
 
           if (albumStart < q.length) ...[
             _QueueSectionHeader('From Album'),
             for (int i = albumStart; i < q.length; i++)
-              _QueueTrackTile(item: q[i], index: i, player: widget.player),
+              _QueueTrackTile(
+                key: ValueKey(i),
+                item: q[i],
+                index: i,
+                player: widget.player,
+                isAnimatingOut: _animatingOut.contains(i),
+                onTap: () => _jumpTo(i),
+              ),
           ],
         ],
       );
@@ -587,20 +621,25 @@ class _QueueTrackTile extends StatelessWidget {
   final int index;
   final PlayerService player;
   final bool isCurrent;
+  final bool isAnimatingOut;
+  final VoidCallback? onTap;
 
   const _QueueTrackTile({
+    super.key,
     required this.item,
     required this.index,
     required this.player,
     this.isCurrent = false,
+    this.isAnimatingOut = false,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final t = item.track;
-    return ListTile(
+    final tile = ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-      onTap: isCurrent ? null : () => player.skipToIndex(index),
+      onTap: isCurrent ? null : onTap,
       leading: isCurrent
           ? const Icon(Icons.graphic_eq, color: Colors.white, size: 20)
           : const Icon(Icons.music_note, color: Colors.white38, size: 20),
@@ -623,6 +662,18 @@ class _QueueTrackTile extends StatelessWidget {
       trailing: Text(
         t.durationFormatted,
         style: const TextStyle(color: Colors.white38, fontSize: 12),
+      ),
+    );
+
+    return AnimatedSlide(
+      offset: isAnimatingOut ? const Offset(-0.18, 0) : Offset.zero,
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeIn,
+      child: AnimatedOpacity(
+        opacity: isAnimatingOut ? 0.0 : 1.0,
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeIn,
+        child: tile,
       ),
     );
   }

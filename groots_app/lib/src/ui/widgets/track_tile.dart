@@ -41,7 +41,12 @@ class TrackTile extends StatelessWidget {
       leading: const Icon(Icons.music_note),
       title: Text(track.title, overflow: TextOverflow.ellipsis),
       subtitle: Text(
-        '${track.artist}${track.album != null ? ' · ${track.album}' : ''}',
+        [
+          track.artist,
+          if (track.album != null) track.album!,
+          if (track.discNumber != null) 'Disc ${track.discNumber}',
+          if (track.side != null) 'Side ${track.side}',
+        ].join(' · '),
         overflow: TextOverflow.ellipsis,
       ),
       trailing: isMobile

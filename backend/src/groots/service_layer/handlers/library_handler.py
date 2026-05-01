@@ -11,7 +11,6 @@ from groots.domain.model.fingerprint import TrackFingerprint
 from groots.domain.model.track import Track
 from groots.service_layer.unit_of_work import AbstractUnitOfWork
 
-
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 
@@ -151,7 +150,9 @@ async def _pin_album_cover(
     if not album or album.cover_cid:
         return
     ext = ".png" if (cover_mime or "").endswith("png") else ".jpg"
-    album.cover_cid = await uow.ipfs.pin_add_bytes(cover_image, f"cover_{album_id}{ext}")
+    album.cover_cid = await uow.ipfs.pin_add_bytes(
+        cover_image, f"cover_{album_id}{ext}"
+    )
     await uow.albums.update(album)
 
 
@@ -163,6 +164,12 @@ async def handle_add_track(cmd: AddTrack, uow: AbstractUnitOfWork) -> dict:
         user = await uow.users.get(cmd.user_id)
         if user.used_storage_bytes + cmd.file_size_bytes > user.storage_quota_bytes:
             raise StorageQuotaExceeded()
+
+        if cmd.album_id is not None:
+            if cmd.disc_number is not None:
+                await uow.tracks.backfill_null_disc_number(cmd.album_id, 1)
+            if cmd.side is not None:
+                await uow.tracks.backfill_null_side(cmd.album_id, "A")
 
         track = Track(
             user_id=cmd.user_id,
@@ -178,6 +185,8 @@ async def handle_add_track(cmd: AddTrack, uow: AbstractUnitOfWork) -> dict:
             genre=cmd.genre,
             mime_type=cmd.mime_type,
             source=cmd.source,
+            disc_number=cmd.disc_number,
+            side=cmd.side,
         )
         await uow.tracks.add(track)
 
@@ -266,6 +275,7 @@ async def handle_upload_track(cmd: UploadTrack, uow: AbstractUnitOfWork) -> dict
         cd_verification: dict | None = None
         if cmd.source == "cd":
             from groots.adapters.impl.cd_verifier import CdVerifier
+
             cd_verification = CdVerifier().verify(meta).to_dict()
 
         # ── 5. Persist fingerprint (if we got one and it's genuinely new) ────

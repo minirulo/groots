@@ -53,6 +53,7 @@ class AlbumsView extends StatefulWidget {
 class _AlbumsViewState extends State<AlbumsView> {
   Album? _selectedAlbum;
   bool _showingUnknown = false;
+  int? _selectedDisc; // active disc in multi-disc switcher; null = no switcher
   String? _scrollToTrackId;
   final ScrollController _trackScrollController = ScrollController();
 
@@ -99,16 +100,19 @@ class _AlbumsViewState extends State<AlbumsView> {
   void _selectAlbum(Album a) => setState(() {
     _selectedAlbum = a;
     _showingUnknown = false;
+    _selectedDisc = null;
   });
 
   void _selectUnknown() => setState(() {
     _selectedAlbum = null;
     _showingUnknown = true;
+    _selectedDisc = null;
   });
 
   void _goBack() => setState(() {
     _selectedAlbum = null;
     _showingUnknown = false;
+    _selectedDisc = null;
   });
 
   List<Track> _tracksFor(List<Track> all) {
@@ -309,6 +313,12 @@ class _AlbumsViewState extends State<AlbumsView> {
 
   // ── Album detail (track list) ───────────────────────────────────────────────
 
+  /// "Vinyl" for LP/EP formats, "Disc" for everything else.
+  String get _discPrefix {
+    final fmt = _selectedAlbum?.recordingFormat?.toLowerCase();
+    return (fmt == 'lp' || fmt == 'ep') ? 'Vinyl' : 'Disc';
+  }
+
   Widget _buildDetail(
     BuildContext context,
     AlbumState albumState,
@@ -320,8 +330,28 @@ class _AlbumsViewState extends State<AlbumsView> {
       TargetPlatform.iOS || TargetPlatform.android => true,
       _ => false,
     };
-    final tracks = _tracksFor(libraryState.tracks);
     final albumTitle = _showingUnknown ? 'Unknown' : _selectedAlbum!.title;
+
+    // All tracks for this album, sorted by track_number.
+    final allTracks = _tracksFor(libraryState.tracks);
+
+    // Unique disc numbers present in this album (sorted).
+    final discNumbers = allTracks
+        .where((t) => t.discNumber != null)
+        .map((t) => t.discNumber!)
+        .toSet()
+        .toList()
+      ..sort();
+    final hasMultiDisc = discNumbers.length > 1;
+
+    // Which disc is shown; auto-select first when entering a multi-disc album.
+    final effectiveDisc =
+        hasMultiDisc ? (_selectedDisc ?? discNumbers.first) : null;
+
+    // Tracks visible in the list (filtered when a disc is selected).
+    final visibleTracks = effectiveDisc != null
+        ? allTracks.where((t) => t.discNumber == effectiveDisc).toList()
+        : allTracks;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -398,11 +428,36 @@ class _AlbumsViewState extends State<AlbumsView> {
 
         const Divider(height: 1),
 
+        // ── Disc switcher (multi-disc albums only) ────────────────────────
+        if (!_showingUnknown && hasMultiDisc)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+            child: SegmentedButton<int>(
+              segments: discNumbers
+                  .map(
+                    (d) => ButtonSegment<int>(
+                      value: d,
+                      label: Text('$_discPrefix $d'),
+                      icon: Icon(
+                        _discPrefix == 'Vinyl'
+                            ? Icons.album_outlined
+                            : Icons.album,
+                        size: 16,
+                      ),
+                    ),
+                  )
+                  .toList(),
+              selected: {effectiveDisc!},
+              onSelectionChanged: (s) =>
+                  setState(() => _selectedDisc = s.first),
+            ),
+          ),
+
         // ── Track list ────────────────────────────────────────────────────
         Expanded(
-          child: tracks.isEmpty
+          child: visibleTracks.isEmpty
               ? const Center(child: Text('No tracks in this album.'))
-              : _buildTrackList(context, tracks),
+              : _buildTrackList(context, visibleTracks),
         ),
       ],
     );
@@ -425,16 +480,52 @@ class _AlbumsViewState extends State<AlbumsView> {
         });
       }
     }
+
+    // Disc grouping is handled by the switcher above.
+    // Here we only interleave side separators when tracks carry a side value.
+    final hasSides = tracks.any((t) => t.side != null);
+
+    // Build a flat list of items: String = side separator, Track = tile.
+    final items = <Object>[];
+
+    if (!hasSides) {
+      items.addAll(tracks);
+    } else {
+      final sideKeys = tracks.map((t) => t.side).toSet().toList()
+        ..sort((a, b) {
+          if (a == null && b == null) return 0;
+          if (a == null) return -1;
+          if (b == null) return 1;
+          return a.compareTo(b);
+        });
+
+      for (final side in sideKeys) {
+        if (side != null) items.add('Side $side');
+        items.addAll(
+          tracks.where((t) => t.side == side).toList()
+            ..sort(
+              (a, b) =>
+                  (a.trackNumber ?? 999).compareTo(b.trackNumber ?? 999),
+            ),
+        );
+      }
+    }
+
     return ListView.builder(
       controller: _trackScrollController,
-      itemCount: tracks.length,
+      itemCount: items.length,
       itemBuilder: (context, i) {
-        final t = tracks[i];
+        final item = items[i];
+        if (item is String) {
+          return _TrackSectionLabel(label: item);
+        }
+        final t = item as Track;
+        final tIdx = tracks.indexOf(t);
         return TrackTile(
           track: t,
           showLibraryActions: true,
-          onTap: t.pinned ? () => _playFrom(tracks, i) : null,
-          onPlay: () => _playFrom(tracks, i),
+          onTap: t.pinned ? () => _playFrom(tracks, tIdx) : null,
+          onPlay: () => _playFrom(tracks, tIdx),
           onPin: () =>
               context.read<LibraryBloc>().add(LibraryTrackPinRequested(t.id)),
           onDelete: () => context.read<LibraryBloc>().add(
@@ -703,6 +794,39 @@ class _AlbumHeader extends StatelessWidget {
 }
 
 // ── Shared ────────────────────────────────────────────────────────────────────
+
+class _TrackSectionLabel extends StatelessWidget {
+  final String label;
+  const _TrackSectionLabel({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+            decoration: BoxDecoration(
+              color: scheme.secondaryContainer,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: scheme.onSecondaryContainer,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Divider(color: scheme.outlineVariant, height: 1)),
+        ],
+      ),
+    );
+  }
+}
 
 class _AlbumPlaceholder extends StatelessWidget {
   const _AlbumPlaceholder();
