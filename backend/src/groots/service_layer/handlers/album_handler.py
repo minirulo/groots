@@ -1,4 +1,3 @@
-from groots.service_layer.handlers.library_handler import _ext_for_mime
 from groots.domain.commands import (
     AssignTrackToAlbum,
     CreateAlbum,
@@ -15,6 +14,7 @@ from groots.domain.errors import (
     TrackNotOwnedByUser,
 )
 from groots.domain.model.album import Album
+from groots.service_layer.handlers.library_handler import _ext_for_mime
 from groots.service_layer.unit_of_work import AbstractUnitOfWork
 
 
@@ -122,8 +122,10 @@ async def handle_assign_track_to_album(
         if cmd.track_number is not None:
             track.track_number = cmd.track_number
         if cmd.disc_number is not None:
+            await uow.tracks.backfill_null_disc_number(cmd.album_id, 1)
             track.disc_number = cmd.disc_number
         if cmd.side is not None:
+            await uow.tracks.backfill_null_side(cmd.album_id, "A")
             track.side = cmd.side
 
         await uow.tracks.update(track)

@@ -20,3 +20,19 @@ class TrackRepository(BaseMongoRepository[Track]):
             {"cid": cid, "user_id": user_id}, session=self.session
         )
         return from_document(doc, Track) if doc else None
+
+    async def backfill_null_disc_number(self, album_id: str, disc_number: int) -> None:
+        """Set disc_number on every album track that currently has disc_number=None."""
+        await self.collection.update_many(
+            {"album_id": album_id, "disc_number": None},
+            {"$set": {"disc_number": disc_number}},
+            session=self.session,
+        )
+
+    async def backfill_null_side(self, album_id: str, side: str) -> None:
+        """Set side on every album track that currently has side=None."""
+        await self.collection.update_many(
+            {"album_id": album_id, "side": None},
+            {"$set": {"side": side}},
+            session=self.session,
+        )
