@@ -11,6 +11,8 @@ class AppDelegate: FlutterAppDelegate {
   private var ipfsRunning = false
   private var statusTimer: Timer?
 
+  private var vinylChannel: VinylRecorderChannel?
+
   override func applicationDidFinishLaunching(_ notification: Notification) {
     guard
       let controller = mainFlutterWindow?.contentViewController as? FlutterViewController
@@ -21,6 +23,8 @@ class AppDelegate: FlutterAppDelegate {
       DispatchQueue.main.async { self?.ipfsRunning = running }
     }
     kuboChannel = channel
+
+    vinylChannel = VinylRecorderChannel(messenger: controller.engine.binaryMessenger)
 
     // Poll XPC status every 3 s so the dock menu stays accurate even when the
     // daemon is started/stopped from the Flutter UI instead of the dock menu.

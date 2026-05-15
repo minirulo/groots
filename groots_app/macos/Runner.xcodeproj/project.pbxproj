@@ -32,6 +32,8 @@
 		892EA53204AAF7CE0DAE2219 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0BDF449EAF88DB14932AA7B9 /* Cocoa.framework */; };
 		9599D7FD9F2F8379BDB6EF7D /* KuboXPCClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96C94747EB8AD76EC97F92F4 /* KuboXPCClient.swift */; };
 		972FCC4B1D248A3E64588CAA /* KuboMethodChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F1817BF53E0970135F7DACE /* KuboMethodChannel.swift */; };
+		d7e8b8011da04366b782d3d5 /* VinylRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ca76f23324042e49153827b /* VinylRecorder.swift */; };
+		f9fa2051cb2b41fc9315d02d /* VinylRecorderChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38cfa15ab90d4036a1477ea6 /* VinylRecorderChannel.swift */; };
 		9EDD0DC74FA6AD28E4F67DAF /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 396A2577DCB9C6AA8541FD9F /* main.swift */; };
 		DE0EBC59292AC196A0BB5950 /* KuboHelperProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBDD4436510D480735C47645 /* KuboHelperProtocol.swift */; };
 		E1848155DC110773142894B7 /* KuboHelperService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70E1BD4C83E97AE736FA6685 /* KuboHelperService.swift */; };
@@ -124,6 +126,8 @@
 		E4C40CD619C48D0DE7F347CF /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
 		F13B218EB43B460F096E9B3B /* KuboHelper */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text; path = KuboHelper; sourceTree = BUILT_PRODUCTS_DIR; };
 		FBDD4436510D480735C47645 /* KuboHelperProtocol.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KuboHelperProtocol.swift; sourceTree = "<group>"; };
+		6ca76f23324042e49153827b /* VinylRecorder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VinylRecorder.swift; sourceTree = "<group>"; };
+		38cfa15ab90d4036a1477ea6 /* VinylRecorderChannel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VinylRecorderChannel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -237,6 +241,8 @@
 				FBDD4436510D480735C47645 /* KuboHelperProtocol.swift */,
 				96C94747EB8AD76EC97F92F4 /* KuboXPCClient.swift */,
 				3F1817BF53E0970135F7DACE /* KuboMethodChannel.swift */,
+				6ca76f23324042e49153827b /* VinylRecorder.swift */,
+				38cfa15ab90d4036a1477ea6 /* VinylRecorderChannel.swift */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -591,6 +597,8 @@
 				DE0EBC59292AC196A0BB5950 /* KuboHelperProtocol.swift in Sources */,
 				9599D7FD9F2F8379BDB6EF7D /* KuboXPCClient.swift in Sources */,
 				972FCC4B1D248A3E64588CAA /* KuboMethodChannel.swift in Sources */,
+				d7e8b8011da04366b782d3d5 /* VinylRecorder.swift in Sources */,
+				f9fa2051cb2b41fc9315d02d /* VinylRecorderChannel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -922,6 +930,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEVELOPMENT_TEAM = B3UPYA8K4D;
+				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

@@ -42,6 +42,11 @@ class LibraryProvider {
     required String filename,
     required String mimeType,
     String? source,
+    String? hintArtist,
+    String? hintTitle,
+    String? hintAlbum,
+    int? hintYear,
+    int? hintTrackNumber,
   }) async {
     final token = await _storage.getToken();
     final req = http.MultipartRequest(
@@ -53,6 +58,11 @@ class LibraryProvider {
       http.MultipartFile.fromBytes('file', bytes, filename: filename),
     );
     if (source != null) req.fields['source'] = source;
+    if (hintArtist != null) req.fields['hint_artist'] = hintArtist;
+    if (hintTitle != null) req.fields['hint_title'] = hintTitle;
+    if (hintAlbum != null) req.fields['hint_album'] = hintAlbum;
+    if (hintYear != null) req.fields['hint_year'] = hintYear.toString();
+    if (hintTrackNumber != null) req.fields['hint_track_number'] = hintTrackNumber.toString();
     final streamed = await req.send();
     final body = await streamed.stream.bytesToString();
     if (streamed.statusCode != 201) throw Exception(body);
