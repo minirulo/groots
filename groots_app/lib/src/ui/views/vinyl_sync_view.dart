@@ -6,11 +6,13 @@ import 'package:http/http.dart' as http;
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
 import '../../adapters/providers/album_provider.dart';
+import '../../service_layer/vinyl_recorder.dart';
 import '../../adapters/providers/discogs_provider.dart';
 import '../../adapters/providers/library_provider.dart';
 import '../../domain/models/album.dart';
@@ -53,10 +55,11 @@ class _VinylSyncViewState extends State<VinylSyncView>
   int? _manualDisk;
 
   // ── Recording ─────────────────────────────────────────────────────────────────
-  final AudioRecorder _recorder = AudioRecorder();
+  final VinylRecorder _recorder = VinylRecorder();
   List<InputDevice> _devices = [];
   InputDevice? _selectedDevice;
   bool _isRecording = false;
+  bool _isLoadingFile = false;
   String? _recordingPath;
   Duration _elapsed = Duration.zero;
   Timer? _elapsedTimer;
@@ -246,6 +249,137 @@ class _VinylSyncViewState extends State<VinylSyncView>
 
   // ── Recording helpers ─────────────────────────────────────────────────────────
 
+  Widget _buildSidePicker() {
+    final sides = _release!.availableSides;
+    if (sides.length <= 1) {
+      return Text(
+        'Side ${sides.firstOrNull ?? '?'} · '
+        '${((_selectedSide != null ? _release!.sides[_selectedSide] : null) ?? _release!.tracklist).length} tracks',
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      );
+    }
+    return Row(
+      children: [
+        Text('Side:', style: Theme.of(context).textTheme.bodyMedium),
+        const SizedBox(width: 8),
+        ...sides.map(
+          (s) => Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: ChoiceChip(
+              label: Text(s),
+              selected: _selectedSide == s,
+              onSelected: _isRecording
+                  ? null
+                  : (_) => setState(() => _selectedSide = s),
+            ),
+          ),
+        ),
+        if (_selectedSide != null) ...[
+          const Spacer(),
+          Text(
+            '${((_release!.sides[_selectedSide]) ?? _release!.tracklist).length} tracks',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildManualSideDiskPicker() {
+    const sides = ['A', 'B', 'C', 'D'];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              Text('Side:', style: Theme.of(context).textTheme.bodyMedium),
+              const SizedBox(width: 8),
+              ...sides.map(
+                (s) => Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: ChoiceChip(
+                    label: Text(s),
+                    selected: _manualSide == s,
+                    onSelected: _isRecording
+                        ? null
+                        : (_) => setState(() => _manualSide = s),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Text('Disc:', style: Theme.of(context).textTheme.bodyMedium),
+              const SizedBox(width: 8),
+              ...List.generate(4, (i) => i + 1).map(
+                (d) => Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: ChoiceChip(
+                    label: Text('$d'),
+                    selected: _manualDisk == d,
+                    onSelected: _isRecording
+                        ? null
+                        : (selected) =>
+                            setState(() => _manualDisk = selected ? d : null),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _loadExistingFile() async {
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['wav', 'flac', 'aiff', 'aif'],
+    );
+    final path = picked?.files.single.path;
+    if (path == null || !mounted) return;
+
+    setState(() => _isLoadingFile = true);
+    try {
+      final duration = await _recorder.probeInfo(path);
+      final samples = await _recorder.generateWaveform(path, 1200);
+      final splits = _autoSplitsFromDiscogs();
+      final names = _defaultTrackNames(splits);
+      for (final c in _trackCtrls) {
+        c.dispose();
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _recordingPath = path;
+        _recordingDuration = duration;
+        _samples = samples;
+        _elapsed = duration ?? Duration.zero;
+        _startTrim = 0;
+        _endTrim = null;
+        _splits = splits;
+        _trackCtrls =
+            names.map((n) => TextEditingController(text: n)).toList();
+        _step = _VinylStep.edit;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load file: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoadingFile = false);
+    }
+  }
+
   Future<void> _loadDevices() async {
     try {
       final devices = await _recorder.listInputDevices();
@@ -280,7 +414,7 @@ class _VinylSyncViewState extends State<VinylSyncView>
     await _recorder.start(
       RecordConfig(
         encoder: AudioEncoder.wav,
-        sampleRate: 44100,
+        sampleRate: 48000,
         numChannels: 2,
         device: _selectedDevice,
       ),
@@ -318,7 +452,7 @@ class _VinylSyncViewState extends State<VinylSyncView>
     await _recorder.stop();
 
     // Probe actual file duration so sample↔time mapping is exact.
-    _recordingDuration = await _probeDuration(_recordingPath!);
+    _recordingDuration = await _recorder.probeInfo(_recordingPath!);
 
     final splits = _autoSplitsFromDiscogs();
     final names = _defaultTrackNames(splits);
@@ -336,26 +470,6 @@ class _VinylSyncViewState extends State<VinylSyncView>
 
   double _normDb(double db) =>
       ((db - (-60.0)) / (0.0 - (-60.0))).clamp(0.0, 1.0);
-
-  Future<Duration?> _probeDuration(String path) async {
-    try {
-      final r = await Process.run('ffprobe', [
-        '-v',
-        'quiet',
-        '-show_entries',
-        'format=duration',
-        '-of',
-        'csv=p=0',
-        path,
-      ]);
-      final secs = double.tryParse((r.stdout as String).trim());
-      return secs != null
-          ? Duration(milliseconds: (secs * 1000).round())
-          : null;
-    } catch (_) {
-      return null;
-    }
-  }
 
   // Returns actual duration in seconds, falling back to sample count * 100 ms.
   double get _totalDurationSec =>
@@ -509,17 +623,7 @@ class _VinylSyncViewState extends State<VinylSyncView>
   ) async {
     final dir = await getTemporaryDirectory();
     final outPath = '${dir.path}/vinyl_track_$index.flac';
-    final result = await Process.run('ffmpeg', [
-      '-y',
-      '-i', _recordingPath!,
-      '-ss', startSec.toStringAsFixed(3),
-      '-to', endSec.toStringAsFixed(3),
-      '-c:a', 'flac', // transcode WAV → FLAC losslessly
-      outPath,
-    ]);
-    if (result.exitCode != 0) {
-      throw Exception('ffmpeg error: ${result.stderr}');
-    }
+    await _recorder.exportSegment(_recordingPath!, outPath, startSec, endSec);
     return outPath;
   }
 
@@ -565,11 +669,17 @@ class _VinylSyncViewState extends State<VinylSyncView>
             .replaceAll(RegExp(r'[^\w\s\-]'), '')
             .trim();
         final filename = '${rawName.isEmpty ? 'track_${i + 1}' : rawName}.flac';
+        final trackName = _trackCtrls[i].text.trim();
         final result = await libraryProvider.uploadTrack(
           bytes: bytes,
           filename: filename,
           mimeType: 'audio/flac',
           source: 'vinyl',
+          hintArtist: _selectedSummary?.artist,
+          hintTitle: trackName.isNotEmpty ? trackName : null,
+          hintAlbum: _selectedSummary?.title,
+          hintYear: _selectedSummary?.year,
+          hintTrackNumber: i + 1,
         );
         final trackId = result['track_id'] as String;
 
@@ -1113,7 +1223,19 @@ class _VinylSyncViewState extends State<VinylSyncView>
                   ? null
                   : (v) => setState(() => _selectedDevice = v),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
+          ],
+
+          // Side / disk picker — Discogs flow
+          if (_release != null) ...[
+            _buildSidePicker(),
+            const SizedBox(height: 16),
+          ],
+
+          // Side / disk picker — existing album flow
+          if (_existingAlbum != null) ...[
+            _buildManualSideDiskPicker(),
+            const SizedBox(height: 16),
           ],
 
           // VU meter
@@ -1158,17 +1280,20 @@ class _VinylSyncViewState extends State<VinylSyncView>
                     label: const Text('Start recording'),
                   ),
           ),
-          const SizedBox(height: 16),
-
-          if (_release != null)
-            Text(
-              'Recording side ${_selectedSide ?? '?'} — '
-              '${((_selectedSide != null ? _release!.sides[_selectedSide] : null) ?? _release!.tracklist).length} tracks expected',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+          const SizedBox(height: 12),
+          Center(
+            child: OutlinedButton.icon(
+              onPressed: _isRecording || _isLoadingFile ? null : _loadExistingFile,
+              icon: _isLoadingFile
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.folder_open),
+              label: Text(_isLoadingFile ? 'Loading…' : 'Load existing recording'),
             ),
+          ),
         ],
       ),
     );
