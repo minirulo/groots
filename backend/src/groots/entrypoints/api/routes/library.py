@@ -170,12 +170,18 @@ async def upload_track(
     ],
     bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
     source: Annotated[str | None, Form()] = None,
+    hint_artist: Annotated[str | None, Form()] = None,
+    hint_title: Annotated[str | None, Form()] = None,
+    hint_album: Annotated[str | None, Form()] = None,
+    hint_year: Annotated[int | None, Form()] = None,
+    hint_track_number: Annotated[int | None, Form()] = None,
 ) -> dict:
     """
     Mobile upload: client sends audio file → server adds to IPFS + pins + registers.
     The track is immediately pinned so it's available across all devices.
     Optional `source` form field declares the origin (cd, vinyl, digital_download, …).
     When source is "cd", the response includes a `cd_verification` object.
+    Optional hint_* fields supply metadata when the file has no embedded tags.
     """
     content = await file.read()
     try:
@@ -187,6 +193,11 @@ async def upload_track(
                 file_size_bytes=len(content),
                 mime_type=file.content_type or "audio/mpeg",
                 source=source,
+                hint_artist=hint_artist,
+                hint_title=hint_title,
+                hint_album=hint_album,
+                hint_year=hint_year,
+                hint_track_number=hint_track_number,
             )
         )
     except GrootException as e:

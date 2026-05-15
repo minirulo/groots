@@ -55,6 +55,11 @@ class UploadTrack:
     file_size_bytes: int
     mime_type: str
     source: str | None = None
+    hint_artist: str | None = None
+    hint_title: str | None = None
+    hint_album: str | None = None
+    hint_year: int | None = None
+    hint_track_number: int | None = None
 
 
 # ── Album commands ────────────────────────────────────────────────────────────

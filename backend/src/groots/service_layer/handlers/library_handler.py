@@ -246,11 +246,11 @@ async def handle_upload_track(cmd: UploadTrack, uow: AbstractUnitOfWork) -> dict
         fallback_artist = parts[0] if len(parts) > 1 else "Unknown"
         fallback_title = parts[1] if len(parts) > 1 else stem
 
-        title = meta.title or fallback_title
-        artist = meta.artist or fallback_artist
-        year = meta.year
+        title = meta.title or cmd.hint_title or fallback_title
+        artist = meta.artist or cmd.hint_artist or fallback_artist
+        year = meta.year or cmd.hint_year
         genre = meta.genre
-        track_number = meta.track_number
+        track_number = meta.track_number or cmd.hint_track_number
 
         # ── 3. Fingerprint + match ───────────────────────────────────────────
         duration, fp_hex, matched_central_id, matched_user_fp_id = (
@@ -261,7 +261,7 @@ async def handle_upload_track(cmd: UploadTrack, uow: AbstractUnitOfWork) -> dict
         album_id, album_title, promote_to_central = await _resolve_album_id(
             matched_central_id=matched_central_id,
             matched_user_fp_id=matched_user_fp_id,
-            meta_album=meta.album,
+            meta_album=meta.album or cmd.hint_album,
             artist=artist,
             created_by=cmd.user_id,
             uow=uow,
