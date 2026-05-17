@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 
 from groots.adapters.impl.metadata_extractor import MetadataExtractor
 from groots.config import settings
-from groots.domain.commands import AddTrack, PinTrack, RemoveTrack, UploadTrack
+from groots.domain.commands import AddTrack, PinTrack, RemoveTrack, ReplaceRecording, UploadTrack
 from groots.domain.errors import GrootException
 from groots.entrypoints.api import views
 from groots.entrypoints.api.auth import get_current_oauth_user, OAuthUser
@@ -159,6 +159,40 @@ async def get_stream_url(
     return StreamUrlResponse(
         track_id=track_id, stream_url=ipfs.stream_url(track["cid"])
     )
+
+
+@router.put("/{track_id}/recording", status_code=200)
+@inject
+async def replace_recording(
+    track_id: str,
+    file: Annotated[UploadFile, File()],
+    current_user: Annotated[
+        OAuthUser, Security(get_current_oauth_user, scopes=[settings.LIBRARY_WRITE])
+    ],
+    bus: Annotated[MessageBus, Depends(Provide[Container.messagebus])],
+) -> dict:
+    """
+    Replace the audio recording of an existing track.
+
+    The track title, artist, album assignment and all other metadata are kept.
+    The IPFS filename is derived from the track title so the name never changes
+    even if the format does (e.g. WAV → FLAC).
+    The old CID is unpinned from the IPFS core node (and its cluster peers);
+    the new file is pinned immediately under a new CID.
+    """
+    content = await file.read()
+    try:
+        return await bus.handle(
+            ReplaceRecording(
+                user_id=current_user.user_id,
+                track_id=track_id,
+                content=content,
+                file_size_bytes=len(content),
+                mime_type=file.content_type or "audio/mpeg",
+            )
+        )
+    except GrootException as e:
+        raise to_http_exception(e)
 
 
 @router.post("/upload", status_code=201)

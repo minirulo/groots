@@ -1,6 +1,6 @@
 import os
 
-from groots.domain.commands import AddTrack, PinTrack, RemoveTrack, UploadTrack
+from groots.domain.commands import AddTrack, PinTrack, RemoveTrack, ReplaceRecording, UploadTrack
 from groots.domain.errors import (
     StorageQuotaExceeded,
     TrackNotFound,
@@ -140,6 +140,13 @@ async def _resolve_album_id(
     return None, None, False
 
 
+def _maybe_verify_cd(meta, source: str | None) -> dict | None:
+    if source != "cd":
+        return None
+    from groots.adapters.impl.cd_verifier import CdVerifier
+    return CdVerifier().verify(meta).to_dict()
+
+
 async def _pin_album_cover(
     album_id: str,
     cover_image: bytes,
@@ -207,6 +214,7 @@ async def handle_remove_track(cmd: RemoveTrack, uow: AbstractUnitOfWork) -> None
         if track.pinned:
             await uow.ipfs.pin_rm(track.cid)
             await uow.ipfs.mfs_rm(f"{track.title}{_ext_for_mime(track.mime_type)}")
+            await uow.ipfs.repo_gc()
 
         user = await uow.users.get(cmd.user_id)
         user.used_storage_bytes = max(
@@ -272,11 +280,7 @@ async def handle_upload_track(cmd: UploadTrack, uow: AbstractUnitOfWork) -> dict
             await _pin_album_cover(album_id, meta.cover_image, meta.cover_mime, uow)
 
         # ── 4b. CD verification (only when user declared source as CD) ────────
-        cd_verification: dict | None = None
-        if cmd.source == "cd":
-            from groots.adapters.impl.cd_verifier import CdVerifier
-
-            cd_verification = CdVerifier().verify(meta).to_dict()
+        cd_verification = _maybe_verify_cd(meta, cmd.source)
 
         # ── 5. Persist fingerprint (if we got one and it's genuinely new) ────
         # Skip when any existing fingerprint already covers this audio, to avoid
@@ -328,6 +332,74 @@ async def handle_upload_track(cmd: UploadTrack, uow: AbstractUnitOfWork) -> dict
         if cd_verification is not None:
             result["cd_verification"] = cd_verification
         return result
+
+
+async def handle_replace_recording(
+    cmd: ReplaceRecording, uow: AbstractUnitOfWork
+) -> dict:
+    """
+    Replace the audio file of an existing track.
+
+    Behaviour:
+    - The track's title, artist, album, and all other metadata are preserved.
+    - The filename stored in IPFS MFS is derived from the track title (not the
+      uploaded filename) so the conceptual identity of the track doesn't change.
+    - Old CID is unpinned from the IPFS core node and removed from MFS; the
+      cluster propagates the removal to its peers automatically.
+    - The new file is added and pinned, generating a new CID.
+    - User quota is adjusted by the size delta (new − old).
+    """
+    async with uow:
+        track = await uow.tracks.get(cmd.track_id)
+        if not track:
+            raise TrackNotFound(cmd.track_id)
+        if track.user_id != cmd.user_id:
+            raise TrackNotOwnedByUser()
+
+        old_cid = track.cid
+        old_mime = track.mime_type
+        old_size = track.file_size_bytes
+
+        # ── 1. Adjust quota (reject early if the new file would overflow) ──────
+        user = await uow.users.get(cmd.user_id)
+        size_delta = cmd.file_size_bytes - old_size
+        if size_delta > 0 and user.used_storage_bytes + size_delta > user.storage_quota_bytes:
+            raise StorageQuotaExceeded()
+
+        # ── 2. Add new file to IPFS under the track's title as filename ─────────
+        new_ext = _ext_for_mime(cmd.mime_type)
+        ipfs_filename = f"{track.title}{new_ext}"
+        new_cid = await uow.ipfs.pin_add_bytes(cmd.content, ipfs_filename)
+
+        # ── 3. Unpin old CID, remove its MFS entry, and run GC ────────────────
+        if track.pinned:
+            await uow.ipfs.pin_rm(old_cid)
+            await uow.ipfs.mfs_rm(f"{track.title}{_ext_for_mime(old_mime)}")
+            await uow.ipfs.repo_gc()
+
+        # ── 4. Extract duration from the new file (best-effort) ────────────────
+        try:
+            duration, _ = await uow.fingerprinter.fingerprint(cmd.content, suffix=new_ext)
+        except Exception:
+            duration = track.duration_seconds  # keep old value on failure
+
+        # ── 5. Copy new file into MFS for webui visibility ─────────────────────
+        await uow.ipfs.mfs_copy(new_cid, ipfs_filename)
+
+        # ── 6. Update track record ─────────────────────────────────────────────
+        track.cid = new_cid
+        track.mime_type = cmd.mime_type
+        track.file_size_bytes = cmd.file_size_bytes
+        track.duration_seconds = duration
+        track.pinned = True
+        await uow.tracks.update(track)
+
+        # ── 7. Adjust user quota ───────────────────────────────────────────────
+        user.used_storage_bytes = max(0, user.used_storage_bytes + size_delta)
+        await uow.users.update(user)
+
+        await uow.commit()
+        return {"track_id": track.id, "cid": new_cid}
 
 
 async def handle_pin_track(cmd: PinTrack, uow: AbstractUnitOfWork) -> None:

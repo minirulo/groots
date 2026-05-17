@@ -19,6 +19,7 @@ from groots.domain.commands import (
     RemoveTrack,
     RemoveTrackFromPlaylist,
     RenamePlaylist,
+    ReplaceRecording,
     UnassignTrackFromAlbum,
     UpdateAlbum,
     UploadAlbumCover,
@@ -42,6 +43,7 @@ class Container(containers.DeclarativeContainer):
         IPFSClient,
         api_url=config.IPFS_API_URL,
         gateway_url=config.IPFS_GATEWAY_URL,
+        kubo_url=config.IPFS_KUBO_URL,
     )
 
     fingerprinter = providers.Singleton(AudioFingerprinter)
@@ -73,6 +75,7 @@ class Container(containers.DeclarativeContainer):
                 RemoveTrack: library_handler.handle_remove_track,
                 PinTrack: library_handler.handle_pin_track,
                 UploadTrack: library_handler.handle_upload_track,
+                ReplaceRecording: library_handler.handle_replace_recording,
                 CreateAlbum: album_handler.handle_create_album,
                 UpdateAlbum: album_handler.handle_update_album,
                 DeleteAlbum: album_handler.handle_delete_album,

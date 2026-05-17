@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
 import '../../adapters/providers/album_provider.dart';
+import '../../adapters/providers/library_provider.dart';
 import '../widgets/cover_scanner.dart';
 import '../../adapters/providers/discogs_provider.dart';
 import '../../domain/models/album.dart';
@@ -531,6 +532,7 @@ class _AlbumsViewState extends State<AlbumsView> {
           onDelete: () => context.read<LibraryBloc>().add(
             LibraryTrackRemoveRequested(t.id),
           ),
+          onReplaceRecording: () => _replaceRecording(context, t),
         );
       },
     );
@@ -569,6 +571,58 @@ class _AlbumsViewState extends State<AlbumsView> {
       context: context,
       builder: (_) => _AlbumCreateDialog(genres: genres),
     );
+  }
+
+  Future<void> _replaceRecording(BuildContext context, Track track) async {
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['flac', 'wav', 'aiff', 'aif', 'mp3', 'm4a'],
+    );
+    final file = picked?.files.single;
+    if (file == null || file.path == null || !context.mounted) return;
+
+    final bytes = await File(file.path!).readAsBytes();
+    final ext = file.extension?.toLowerCase() ?? 'flac';
+    final mime = switch (ext) {
+      'mp3' => 'audio/mpeg',
+      'wav' => 'audio/wav',
+      'aiff' || 'aif' => 'audio/aiff',
+      'm4a' => 'audio/mp4',
+      _ => 'audio/flac',
+    };
+
+    if (!context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final libraryBloc = context.read<LibraryBloc>();
+
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('Replacing "${track.title}"…'),
+        duration: const Duration(seconds: 30),
+      ),
+    );
+
+    try {
+      await Get.find<LibraryProvider>().replaceRecording(
+        trackId: track.id,
+        bytes: bytes,
+        filename: '${track.title}.$ext',
+        mimeType: mime,
+      );
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(content: Text('"${track.title}" replaced successfully.')),
+      );
+      libraryBloc.add(LibraryLoadRequested());
+    } catch (e) {
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Replace failed: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 }
 

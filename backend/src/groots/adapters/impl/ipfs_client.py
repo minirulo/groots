@@ -7,9 +7,12 @@ from groots.domain.errors import IPFSError
 class IPFSClient:
     """Thin async wrapper around the Kubo (go-ipfs) HTTP RPC API."""
 
-    def __init__(self, api_url: str, gateway_url: str):
+    def __init__(self, api_url: str, gateway_url: str, kubo_url: str | None = None):
         self.api_url = api_url.rstrip("/")
         self.gateway_url = gateway_url.rstrip("/")
+        # Direct Kubo RPC — used for operations the cluster proxy doesn't forward
+        # correctly (e.g. repo/gc). Falls back to api_url if not supplied.
+        self.kubo_url = (kubo_url or api_url).rstrip("/")
 
     async def pin_add(self, cid: str) -> None:
         """Pin a CID on the central node so it persists when user goes offline."""
@@ -32,6 +35,25 @@ class IPFSClient:
             )
         if response.status_code != 200:
             raise IPFSError(f"Failed to unpin CID {cid}: {response.text}")
+
+    async def repo_gc(self) -> None:
+        """
+        Run garbage collection on the Kubo node to physically delete blocks
+        that are no longer pinned.
+
+        This must be called on the direct Kubo RPC (port 5001), not the
+        cluster proxy, because the cluster proxy does not forward repo/gc.
+        Without GC, unpinned content remains in the datastore and is still
+        served by the local gateway.
+        """
+        async with httpx.AsyncClient() as client:
+            try:
+                await client.post(
+                    f"{self.kubo_url}/api/v0/repo/gc",
+                    timeout=120.0,
+                )
+            except Exception:
+                pass  # GC is best-effort; don't fail the calling operation
 
     async def is_pinned(self, cid: str) -> bool:
         """Check whether a CID is currently pinned on this node."""
