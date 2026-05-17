@@ -48,14 +48,18 @@ class VinylRecorder {
       )
     }
 
-    // Write int16 WAV at the device's native rate — no SRC, no processing
-    let hwFormat  = inputNode.outputFormat(forBus: 0)
-    let chCount   = min(hwFormat.channelCount, 2)
+    // Write 32-bit int WAV at the device's native rate — no SRC, no processing.
+    // 32-bit preserves full precision from higher-end interfaces; cheap 16-bit
+    // hardware pads the lower bytes with zeros (slightly larger temp file, no downside).
+    // Use the hardware's reported channel count so AVAudioEngine never has to pad
+    // silent channels; mono→stereo upmix happens at export time instead.
+    let hwFormat   = inputNode.outputFormat(forBus: 0)
     let nativeRate = hwFormat.sampleRate > 0 ? hwFormat.sampleRate : 48000.0
+    let chCount    = max(hwFormat.channelCount, 1)
 
     let fileSettings: [String: Any] = [
       AVFormatIDKey:                kAudioFormatLinearPCM,
-      AVLinearPCMBitDepthKey:       16,
+      AVLinearPCMBitDepthKey:       32,
       AVLinearPCMIsFloatKey:        false,
       AVLinearPCMIsBigEndianKey:    false,
       AVLinearPCMIsNonInterleaved:  false,
@@ -213,21 +217,27 @@ class VinylRecorder {
       scanRemaining -= buf.frameLength
     }
 
-    // Normalise to -1 dBFS. Skip if peak is below -20 dBFS (silence/noise floor).
+    // Normalise to -1 dBFS. Only skip if the segment is pure silence (< -60 dBFS)
+    // so that quiet phono signals (which routinely sit below -20 dBFS) are always
+    // brought up rather than left untouched.
     let targetPeak: Float = 0.891  // -1 dBFS
-    let gain: Float = peak > 0.1 ? targetPeak / peak : 1.0
+    let gain: Float = peak > 0.001 ? targetPeak / peak : 1.0
 
     // ── Pass 2: write with gain applied ──────────────────────────────────────
     inputFile.framePosition = startFrame
 
+    // Always export stereo: upmix mono captures by duplicating the channel.
+    let outChannels = max(Int(fmt.channelCount), 2)
     let flacSettings: [String: Any] = [
       AVFormatIDKey:            kAudioFormatFLAC,
       AVSampleRateKey:          sr,
-      AVNumberOfChannelsKey:    Int(fmt.channelCount),
+      AVNumberOfChannelsKey:    outChannels,
       AVEncoderAudioQualityKey: AVAudioQuality.max.rawValue,
     ]
     let outputFile = try AVAudioFile(forWriting: URL(fileURLWithPath: outputPath),
                                      settings: flacSettings)
+    let outFmt = outputFile.processingFormat
+    let isMono = fmt.channelCount == 1 && outChannels == 2
 
     var remaining = totalFrames
     while remaining > 0 {
@@ -235,12 +245,27 @@ class VinylRecorder {
       guard let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: n) else { break }
       try inputFile.read(into: buf, frameCount: n)
       guard buf.frameLength > 0 else { break }
-      if gain != 1.0, let data = buf.floatChannelData {
-        for ch in 0..<Int(buf.format.channelCount) {
-          for i in 0..<Int(buf.frameLength) { data[ch][i] *= gain }
+
+      if isMono {
+        // Duplicate mono → L and R with gain applied.
+        guard let stereo = AVAudioPCMBuffer(pcmFormat: outFmt, frameCapacity: buf.frameLength),
+              let src = buf.floatChannelData,
+              let dst = stereo.floatChannelData else { break }
+        stereo.frameLength = buf.frameLength
+        for i in 0..<Int(buf.frameLength) {
+          let s = src[0][i] * gain
+          dst[0][i] = s
+          dst[1][i] = s
         }
+        try outputFile.write(from: stereo)
+      } else {
+        if gain != 1.0, let data = buf.floatChannelData {
+          for ch in 0..<Int(buf.format.channelCount) {
+            for i in 0..<Int(buf.frameLength) { data[ch][i] *= gain }
+          }
+        }
+        try outputFile.write(from: buf)
       }
-      try outputFile.write(from: buf)
       remaining -= buf.frameLength
     }
   }
