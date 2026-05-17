@@ -11,7 +11,6 @@ from groots.domain.errors import (
     AlbumNotFound,
     AlbumNotOwnedByUser,
     TrackNotFound,
-    TrackNotOwnedByUser,
 )
 from groots.domain.model.album import Album
 from groots.service_layer.handlers.library_handler import _ext_for_mime
@@ -27,7 +26,7 @@ async def handle_create_album(cmd: CreateAlbum, uow: AbstractUnitOfWork) -> dict
             genre=cmd.genre,
             description=cmd.description,
             recording_format=cmd.recording_format,
-            created_by=cmd.created_by,
+            user_id=cmd.user_id,
         )
         await uow.albums.add(album)
         await uow.commit()
@@ -39,7 +38,7 @@ async def handle_update_album(cmd: UpdateAlbum, uow: AbstractUnitOfWork) -> dict
         album = await uow.albums.get(cmd.album_id)
         if not album:
             raise AlbumNotFound(cmd.album_id)
-        if album.created_by and album.created_by != cmd.requesting_user_id:
+        if album.user_id and album.user_id != cmd.requesting_user_id:
             raise AlbumNotOwnedByUser()
 
         if cmd.title is not None:
@@ -61,26 +60,26 @@ async def handle_update_album(cmd: UpdateAlbum, uow: AbstractUnitOfWork) -> dict
 
 
 async def handle_delete_album(cmd: DeleteAlbum, uow: AbstractUnitOfWork) -> None:
-    if not cmd.is_admin:
-        raise AdminRequired()
     async with uow:
         album = await uow.albums.get(cmd.album_id)
         if not album:
             raise AlbumNotFound(cmd.album_id)
+        if not cmd.is_admin and album.user_id != cmd.requesting_user_id:
+            raise AlbumNotOwnedByUser()
 
         # Cascade: delete all tracks that belong to this album
         tracks = await uow.tracks.list_by_album(cmd.album_id)
+        user = await uow.users.get(album.user_id) if album.user_id else None
+        freed_bytes = 0
         for track in tracks:
             if track.pinned:
                 await uow.ipfs.pin_rm(track.cid)
                 await uow.ipfs.mfs_rm(f"{track.title}{_ext_for_mime(track.mime_type)}")
-            user = await uow.users.get(track.user_id)
-            if user:
-                user.used_storage_bytes = max(
-                    0, user.used_storage_bytes - track.file_size_bytes
-                )
-                await uow.users.update(user)
+                freed_bytes += track.file_size_bytes
             await uow.tracks.delete(track.id)
+        if user and freed_bytes:
+            user.used_storage_bytes = max(0, user.used_storage_bytes - freed_bytes)
+            await uow.users.update(user)
 
         await uow.albums.delete(cmd.album_id)
         await uow.commit()
@@ -93,7 +92,7 @@ async def handle_upload_album_cover(
         album = await uow.albums.get(cmd.album_id)
         if not album:
             raise AlbumNotFound(cmd.album_id)
-        if album.created_by and album.created_by != cmd.user_id:
+        if album.user_id and album.user_id != cmd.user_id:
             raise AlbumNotOwnedByUser()
 
         cid = await uow.ipfs.pin_add_bytes(cmd.content, cmd.filename)
@@ -114,11 +113,10 @@ async def handle_assign_track_to_album(
         track = await uow.tracks.get(cmd.track_id)
         if not track:
             raise TrackNotFound(cmd.track_id)
-        if track.user_id != cmd.user_id:
-            raise TrackNotOwnedByUser()
+        if album.user_id and album.user_id != cmd.user_id:
+            raise AlbumNotOwnedByUser()
 
         track.album_id = cmd.album_id
-        track.album = album.title
         if cmd.track_number is not None:
             track.track_number = cmd.track_number
         if cmd.disc_number is not None:
@@ -139,8 +137,10 @@ async def handle_unassign_track_from_album(
         track = await uow.tracks.get(cmd.track_id)
         if not track:
             raise TrackNotFound(cmd.track_id)
-        if track.user_id != cmd.user_id:
-            raise TrackNotOwnedByUser()
+        if track.album_id:
+            owning_album = await uow.albums.get(track.album_id)
+            if owning_album and owning_album.user_id and owning_album.user_id != cmd.user_id:
+                raise AlbumNotOwnedByUser()
 
         track.album_id = None
         track.track_number = None

@@ -18,7 +18,6 @@ import '../../domain/models/track.dart';
 import '../../service_layer/blocs/album/album_bloc.dart';
 import '../../service_layer/blocs/album/album_event.dart';
 import '../../service_layer/blocs/album/album_state.dart';
-import '../../service_layer/blocs/authentication/authentication_bloc.dart';
 import '../../service_layer/blocs/library/library_bloc.dart';
 import '../../service_layer/blocs/library/library_event.dart';
 import '../../service_layer/blocs/library/library_state.dart';
@@ -325,8 +324,6 @@ class _AlbumsViewState extends State<AlbumsView> {
     AlbumState albumState,
     LibraryState libraryState,
   ) {
-    final isAdmin =
-        context.read<AuthenticationBloc>().state.user?.isAdmin ?? false;
     final isMobile = switch (Theme.of(context).platform) {
       TargetPlatform.iOS || TargetPlatform.android => true,
       _ => false,
@@ -386,7 +383,7 @@ class _AlbumsViewState extends State<AlbumsView> {
                   tooltip: 'Edit album details',
                   onPressed: () => _showEditDialog(context, _selectedAlbum!),
                 ),
-                if (isAdmin && !isMobile)
+                if (!isMobile)
                   IconButton(
                     icon: const Icon(Icons.delete_outline),
                     tooltip: 'Delete album and all its tracks',
@@ -524,6 +521,7 @@ class _AlbumsViewState extends State<AlbumsView> {
         final tIdx = tracks.indexOf(t);
         return TrackTile(
           track: t,
+          album: _selectedAlbum,
           showLibraryActions: true,
           onTap: t.pinned ? () => _playFrom(tracks, tIdx) : null,
           onPlay: () => _playFrom(tracks, tIdx),
@@ -549,6 +547,7 @@ class _AlbumsViewState extends State<AlbumsView> {
       playable,
       adjusted,
       (t) => Get.find<IpfsLocalNode>().streamUrl(t.cid, t.mimeType),
+      albumsById: _selectedAlbum != null ? {_selectedAlbum!.id: _selectedAlbum!} : null,
       artUriBuilder: coverUrl != null ? (_) => coverUrl : null,
     );
   }
@@ -1007,7 +1006,7 @@ class _AlbumEditDialogState extends State<_AlbumEditDialog> {
           description: widget.album.description,
           coverCid: _coverRemoved ? null : widget.album.coverCid,
           recordingFormat: _selectedFormat,
-          createdBy: widget.album.createdBy,
+          userId: widget.album.userId,
         ),
       );
 

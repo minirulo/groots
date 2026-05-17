@@ -92,7 +92,7 @@ async def create_album(
                 genre=body.genre,
                 description=body.description,
                 recording_format=body.recording_format,
-                created_by=current_user.user_id,
+                user_id=current_user.user_id,
             )
         )
     except GrootException as e:
@@ -155,7 +155,7 @@ async def delete_album(
             DeleteAlbum(
                 album_id=album_id,
                 requesting_user_id=current_user.user_id,
-                is_admin=current_user.get("is_admin", False),
+                is_admin=current_user.is_admin,
             )
         )
     except GrootException as e:

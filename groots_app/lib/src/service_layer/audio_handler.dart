@@ -5,10 +5,11 @@ import 'package:get/get.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../config/environment.dart';
+import '../domain/models/album.dart';
 import '../domain/models/track.dart';
 import 'ipfs_local_node.dart';
 
-typedef QueueItem = ({Track track, String url, String? artUri});
+typedef QueueItem = ({Track track, String url, String? artUri, Album? album});
 
 AudioPlayer _buildPlayer() => AudioPlayer(
   audioLoadConfiguration: const AudioLoadConfiguration(
@@ -79,6 +80,11 @@ class SoundNetAudioHandler extends BaseAudioHandler with SeekHandler {
   Stream<Duration> get positionStream => _player.positionStream;
   Stream<Duration?> get durationStream => _player.durationStream;
 
+  QueueItem? get currentItem =>
+      (_currentIndex >= 0 && _currentIndex < _queue.length)
+          ? _queue[_currentIndex]
+          : null;
+
   Track? get currentTrack =>
       (_currentIndex >= 0 && _currentIndex < _queue.length)
       ? _queue[_currentIndex].track
@@ -125,8 +131,8 @@ class SoundNetAudioHandler extends BaseAudioHandler with SeekHandler {
       MediaItem(
         id: t.id,
         title: t.title,
-        artist: t.artist,
-        album: t.album,
+        artist: item.album?.artist,
+        album: item.album?.title,
         duration: Duration(seconds: t.durationSeconds),
         artUri: item.artUri != null ? Uri.tryParse(item.artUri!) : null,
       ),

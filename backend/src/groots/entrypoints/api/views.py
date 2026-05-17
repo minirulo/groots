@@ -7,7 +7,9 @@ from groots.service_layer.unit_of_work import AbstractUnitOfWork
 
 async def get_user_library(user_id: str, uow: AbstractUnitOfWork) -> list[dict]:
     async with uow:
-        tracks = await uow.tracks.list_by_user(user_id)
+        albums = await uow.albums.list_by_user(user_id)
+        album_ids = [a.id for a in albums]
+        tracks = await uow.tracks.list_by_album_ids(album_ids)
         return [asdict(t) for t in tracks]
 
 
@@ -16,7 +18,10 @@ async def get_track(
 ) -> dict | None:
     async with uow:
         track = await uow.tracks.get(track_id)
-        if track and track.user_id == user_id:
+        if not track or not track.album_id:
+            return None
+        album = await uow.albums.get(track.album_id)
+        if album and album.user_id == user_id:
             return asdict(track)
         return None
 
@@ -49,11 +54,9 @@ async def get_catalogue_albums(uow: AbstractUnitOfWork, limit: int = 200) -> lis
 
 
 async def get_user_albums(user_id: str, uow: AbstractUnitOfWork) -> list[dict]:
-    """Return albums that the given user has at least one track in."""
+    """Return albums owned by the given user."""
     async with uow:
-        tracks = await uow.tracks.list_by_user(user_id)
-        album_ids = list({t.album_id for t in tracks if t.album_id})
-        albums = await uow.albums.list_for_user(user_id, album_ids)
+        albums = await uow.albums.list_by_user(user_id)
         return [asdict(a) for a in albums]
 
 
@@ -74,7 +77,9 @@ async def get_central_library(uow: AbstractUnitOfWork) -> list[dict]:
     from groots.config import settings
 
     async with uow:
-        tracks = await uow.tracks.list_by_user(settings.SYSTEM_USER_ID)
+        albums = await uow.albums.list_by_user(settings.SYSTEM_USER_ID)
+        album_ids = [a.id for a in albums]
+        tracks = await uow.tracks.list_by_album_ids(album_ids)
         return [asdict(t) for t in tracks]
 
 

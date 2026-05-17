@@ -11,22 +11,18 @@ class AlbumRepository(BaseMongoRepository[Album]):
         cursor = self.collection.find({}, session=self.session)
         return [from_document(doc, Album) async for doc in cursor]
 
-    async def list_for_user(
-        self, user_id: str, track_album_ids: list[str]
-    ) -> list[Album]:
-        """Return albums that the given user has tracks in."""
-        from bson import ObjectId
-
-        oids = [ObjectId(aid) for aid in track_album_ids if aid]
-        if not oids:
-            return []
-        cursor = self.collection.find({"_id": {"$in": oids}}, session=self.session)
+    async def list_by_user(self, user_id: str) -> list[Album]:
+        """Return all albums owned by the given user."""
+        cursor = self.collection.find({"user_id": user_id}, session=self.session)
         return [from_document(doc, Album) async for doc in cursor]
 
-    async def find_by_title_artist(self, title: str, artist: str) -> Album | None:
-        doc = await self.collection.find_one(
-            {"title": title, "artist": artist}, session=self.session
-        )
+    async def find_by_title_artist(
+        self, title: str, artist: str, user_id: str | None = None
+    ) -> Album | None:
+        query: dict = {"title": title, "artist": artist}
+        if user_id is not None:
+            query["user_id"] = user_id
+        doc = await self.collection.find_one(query, session=self.session)
         return from_document(doc, Album) if doc else None
 
     async def search(self, query: str, limit: int = 20) -> list[Album]:

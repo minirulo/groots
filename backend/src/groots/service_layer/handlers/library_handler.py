@@ -29,21 +29,21 @@ def _ext_for_mime(mime: str) -> str:
 async def _resolve_album(
     album_title: str,
     artist: str,
-    created_by: str | None,
+    user_id: str | None,
     uow: AbstractUnitOfWork,
 ) -> tuple[str, bool]:
     """
-    Find an existing global album by title+artist, or create one.
+    Find an existing album owned by user_id with this title+artist, or create one.
     Returns (album_id, is_new) where is_new=True means we just created it.
     """
-    existing = await uow.albums.find_by_title_artist(album_title, artist)
+    existing = await uow.albums.find_by_title_artist(album_title, artist, user_id)
     if existing:
         return existing.id, False
 
     new_album = Album(
         title=album_title,
         artist=artist,
-        created_by=created_by,
+        user_id=user_id,
     )
     await uow.albums.add(new_album)
     return new_album.id, True
@@ -102,42 +102,37 @@ async def _resolve_album_id(
     matched_user_fp_id: str | None,
     meta_album: str | None,
     artist: str,
-    created_by: str,
+    user_id: str,
     uow: AbstractUnitOfWork,
-) -> tuple[str | None, str | None, bool]:
+) -> tuple[str | None, bool]:
     """
-    Determine (album_id, album_title, promote_to_central) using three strategies:
+    Determine (album_id, promote_to_central) using three strategies:
       1. Central-library fingerprint match
       2. User-pool fingerprint match
-      3. Embedded album tag  →  find-or-create global album
+      3. Embedded album tag  →  find-or-create user-owned album
 
     promote_to_central=True means the album was brand-new (created via Priority 3)
     and the fingerprint should be stored as is_central=True so future uploads
     from any user are automatically matched against the central library.
     """
-    album_title: str | None = meta_album
-
     # Priority 1: central library
     if matched_central_id:
         album_id = await _get_album_from_fingerprint_match(matched_central_id, uow)
         if album_id:
-            return album_id, album_title, False
+            return album_id, False
 
     # Priority 2: user fingerprint pool
     if matched_user_fp_id:
         album_id = await _get_album_from_fingerprint_match(matched_user_fp_id, uow)
         if album_id:
-            fp_rec = await uow.fingerprints.get(matched_user_fp_id)
-            title_hint = fp_rec.title if fp_rec else None
-            return album_id, album_title or title_hint, False
+            return album_id, False
 
-    # Priority 3: embedded tag → find-or-create
-    if album_title:
-        album_id, is_new = await _resolve_album(album_title, artist, created_by, uow)
-        # Promote to central when user introduced a genuinely new album
-        return album_id, album_title, is_new
+    # Priority 3: embedded tag → find-or-create user-owned album
+    if meta_album:
+        album_id, is_new = await _resolve_album(meta_album, artist, user_id, uow)
+        return album_id, is_new
 
-    return None, None, False
+    return None, False
 
 
 def _maybe_verify_cd(meta, source: str | None) -> dict | None:
@@ -172,24 +167,18 @@ async def handle_add_track(cmd: AddTrack, uow: AbstractUnitOfWork) -> dict:
         if user.used_storage_bytes + cmd.file_size_bytes > user.storage_quota_bytes:
             raise StorageQuotaExceeded()
 
-        if cmd.album_id is not None:
-            if cmd.disc_number is not None:
-                await uow.tracks.backfill_null_disc_number(cmd.album_id, 1)
-            if cmd.side is not None:
-                await uow.tracks.backfill_null_side(cmd.album_id, "A")
+        if cmd.disc_number is not None:
+            await uow.tracks.backfill_null_disc_number(cmd.album_id, 1)
+        if cmd.side is not None:
+            await uow.tracks.backfill_null_side(cmd.album_id, "A")
 
         track = Track(
-            user_id=cmd.user_id,
             cid=cmd.cid,
             title=cmd.title,
-            artist=cmd.artist,
             duration_seconds=cmd.duration_seconds,
             file_size_bytes=cmd.file_size_bytes,
-            album=cmd.album,
             album_id=cmd.album_id,
             track_number=cmd.track_number,
-            year=cmd.year,
-            genre=cmd.genre,
             mime_type=cmd.mime_type,
             source=cmd.source,
             disc_number=cmd.disc_number,
@@ -208,7 +197,8 @@ async def handle_remove_track(cmd: RemoveTrack, uow: AbstractUnitOfWork) -> None
         track = await uow.tracks.get(cmd.track_id)
         if not track:
             raise TrackNotFound(cmd.track_id)
-        if track.user_id != cmd.user_id:
+        album = await uow.albums.get(track.album_id) if track.album_id else None
+        if not album or album.user_id != cmd.user_id:
             raise TrackNotOwnedByUser()
 
         if track.pinned:
@@ -256,8 +246,6 @@ async def handle_upload_track(cmd: UploadTrack, uow: AbstractUnitOfWork) -> dict
 
         title = meta.title or cmd.hint_title or fallback_title
         artist = meta.artist or cmd.hint_artist or fallback_artist
-        year = meta.year or cmd.hint_year
-        genre = meta.genre
         track_number = meta.track_number or cmd.hint_track_number
 
         # ── 3. Fingerprint + match ───────────────────────────────────────────
@@ -266,12 +254,12 @@ async def handle_upload_track(cmd: UploadTrack, uow: AbstractUnitOfWork) -> dict
         )
 
         # ── 4. Resolve album ─────────────────────────────────────────────────
-        album_id, album_title, promote_to_central = await _resolve_album_id(
+        album_id, promote_to_central = await _resolve_album_id(
             matched_central_id=matched_central_id,
             matched_user_fp_id=matched_user_fp_id,
             meta_album=meta.album or cmd.hint_album,
             artist=artist,
-            created_by=cmd.user_id,
+            user_id=cmd.user_id,
             uow=uow,
         )
 
@@ -302,17 +290,12 @@ async def handle_upload_track(cmd: UploadTrack, uow: AbstractUnitOfWork) -> dict
 
         # ── 6. Persist track ─────────────────────────────────────────────────
         track = Track(
-            user_id=cmd.user_id,
             cid=cid,
             title=title,
-            artist=artist,
             duration_seconds=duration,
             file_size_bytes=cmd.file_size_bytes,
-            album=album_title,
             album_id=album_id,
             track_number=track_number,
-            year=year,
-            genre=genre,
             mime_type=cmd.mime_type,
             pinned=True,
             fingerprint_id=fp_id,
@@ -341,7 +324,7 @@ async def handle_replace_recording(
     Replace the audio file of an existing track.
 
     Behaviour:
-    - The track's title, artist, album, and all other metadata are preserved.
+    - The track's title and all other metadata are preserved.
     - The filename stored in IPFS MFS is derived from the track title (not the
       uploaded filename) so the conceptual identity of the track doesn't change.
     - Old CID is unpinned from the IPFS core node and removed from MFS; the
@@ -353,7 +336,8 @@ async def handle_replace_recording(
         track = await uow.tracks.get(cmd.track_id)
         if not track:
             raise TrackNotFound(cmd.track_id)
-        if track.user_id != cmd.user_id:
+        album = await uow.albums.get(track.album_id) if track.album_id else None
+        if not album or album.user_id != cmd.user_id:
             raise TrackNotOwnedByUser()
 
         old_cid = track.cid
@@ -407,7 +391,8 @@ async def handle_pin_track(cmd: PinTrack, uow: AbstractUnitOfWork) -> None:
         track = await uow.tracks.get(cmd.track_id)
         if not track:
             raise TrackNotFound(cmd.track_id)
-        if track.user_id != cmd.user_id:
+        album = await uow.albums.get(track.album_id) if track.album_id else None
+        if not album or album.user_id != cmd.user_id:
             raise TrackNotOwnedByUser()
 
         await uow.ipfs.pin_add(cmd.cid)

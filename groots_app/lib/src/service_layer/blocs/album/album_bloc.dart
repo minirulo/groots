@@ -102,7 +102,7 @@ class AlbumBloc extends Bloc<AlbumEvent, AlbumState> {
           description: a.description,
           coverCid: a.coverCid,
           recordingFormat: event.recordingFormat,
-          createdBy: a.createdBy,
+          userId: a.userId,
         );
       }).toList();
       emit(state.copyWith(albums: updated));

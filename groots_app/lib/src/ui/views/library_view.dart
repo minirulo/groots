@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get/get.dart';
 
 import '../../domain/models/track.dart';
+import '../../service_layer/blocs/album/album_bloc.dart';
 import '../../service_layer/ipfs_local_node.dart';
 import '../../service_layer/blocs/library/library_bloc.dart';
 import '../../service_layer/blocs/library/library_event.dart';
@@ -23,6 +24,9 @@ class LibraryView extends StatelessWidget {
       return;
     }
     final player = Get.find<PlayerService>();
+    final albumsById = {
+      for (final a in context.read<AlbumBloc>().state.albums) a.id: a,
+    };
     try {
       final playableTracks = allTracks.where((t) => t.pinned).toList();
       final startIndex = playableTracks.indexWhere((t) => t.id == track.id);
@@ -30,6 +34,7 @@ class LibraryView extends StatelessWidget {
         playableTracks,
         startIndex < 0 ? 0 : startIndex,
         (t) => Get.find<IpfsLocalNode>().streamUrl(t.cid, t.mimeType),
+        albumsById: albumsById,
       );
     } catch (e) {
       if (context.mounted) {
@@ -55,12 +60,18 @@ class LibraryView extends StatelessWidget {
             child: Text('No tracks yet.\nUse the Sync tab to add music from your library.'),
           );
         }
+        final albumsById = {
+          for (final a in context.read<AlbumBloc>().state.albums) a.id: a,
+        };
         return ListView.builder(
           itemCount: state.tracks.length,
           itemBuilder: (context, i) {
             final track = state.tracks[i];
+            final album =
+                track.albumId != null ? albumsById[track.albumId!] : null;
             return TrackTile(
               track: track,
+              album: album,
               onPlay: () => _onPlay(context, track, state.tracks),
               onPin: () => context.read<LibraryBloc>().add(LibraryTrackPinRequested(track.id)),
               onDelete: () => context.read<LibraryBloc>().add(LibraryTrackRemoveRequested(track.id)),
