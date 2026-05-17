@@ -63,6 +63,7 @@ class _WaveformEditorState extends State<WaveformEditor> {
 
   static const double _height = 140.0;
   static const double _hitSlop = 18.0;
+  static const double _minimapHeight = 20.0;
 
   // ── Viewport helpers ──────────────────────────────────────────────────────
 
@@ -227,6 +228,28 @@ class _WaveformEditorState extends State<WaveformEditor> {
     widget.onSplitsChanged(updated);
   }
 
+  // ── Zoom helpers ──────────────────────────────────────────────────────────
+
+  void _zoomBy(double factor, double width) {
+    final newZoom = (_zoomLevel * factor).clamp(1.0, 30.0);
+    // Keep the centre of the current viewport fixed.
+    final centreNorm = _scrollOffset + 0.5 / _zoomLevel;
+    final newVisibleFraction = 1.0 / newZoom;
+    final newOffset = (centreNorm - newVisibleFraction / 2)
+        .clamp(0.0, (1.0 - newVisibleFraction).clamp(0.0, 1.0));
+    setState(() {
+      _zoomLevel = newZoom;
+      _scrollOffset = newOffset;
+    });
+  }
+
+  void _onMinimapDrag(double dx, double width) {
+    final visibleFraction = 1.0 / _zoomLevel;
+    final newOffset =
+        (dx / width - visibleFraction / 2).clamp(0.0, (1.0 - visibleFraction).clamp(0.0, 1.0));
+    setState(() => _scrollOffset = newOffset);
+  }
+
   // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
@@ -234,35 +257,116 @@ class _WaveformEditorState extends State<WaveformEditor> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        return MouseRegion(
-          cursor: SystemMouseCursors.click,
-          child: GestureDetector(
-            onTapUp: (d) => _onTapUp(d, width),
-            onPanStart: (d) => _onPanStart(d, width),
-            onPanUpdate: (d) => _onPanUpdate(d, width),
-            onPanEnd: _onPanEnd,
-            child: CustomPaint(
-              size: Size(width, _height),
-              painter: _WaveformPainter(
-                samples: widget.samples,
-                visibleStart: _visibleStart,
-                visibleEnd: _visibleEnd,
-                startTrim: widget.startTrim,
-                endTrim: widget.endTrim,
-                splits: widget.splits,
-                draggingIdx: _draggingIdx,
-                draggingStart: _draggingStart,
-                draggingEnd: _draggingEnd,
-                zoomLevel: _zoomLevel,
-                playbackPosition: widget.playbackPosition,
-                waveColor: Theme.of(context).colorScheme.primary,
-                markerColor: Colors.white,
-                dragColor: Theme.of(context).colorScheme.tertiary,
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ── Main waveform ──────────────────────────────────────────────
+            SizedBox(
+              height: _height,
+              child: Stack(
+                children: [
+                  MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: GestureDetector(
+                      onTapUp: (d) => _onTapUp(d, width),
+                      onPanStart: (d) => _onPanStart(d, width),
+                      onPanUpdate: (d) => _onPanUpdate(d, width),
+                      onPanEnd: _onPanEnd,
+                      child: CustomPaint(
+                        size: Size(width, _height),
+                        painter: _WaveformPainter(
+                          samples: widget.samples,
+                          visibleStart: _visibleStart,
+                          visibleEnd: _visibleEnd,
+                          startTrim: widget.startTrim,
+                          endTrim: widget.endTrim,
+                          splits: widget.splits,
+                          draggingIdx: _draggingIdx,
+                          draggingStart: _draggingStart,
+                          draggingEnd: _draggingEnd,
+                          zoomLevel: _zoomLevel,
+                          playbackPosition: widget.playbackPosition,
+                          waveColor: Theme.of(context).colorScheme.primary,
+                          markerColor: Colors.white,
+                          dragColor: Theme.of(context).colorScheme.tertiary,
+                        ),
+                      ),
+                    ),
+                  ),
+                  // ── Zoom buttons ─────────────────────────────────────────
+                  Positioned(
+                    top: 4,
+                    right: 4,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _ZoomButton(
+                          icon: Icons.zoom_out,
+                          onPressed: _zoomLevel > 1.0
+                              ? () => _zoomBy(0.5, width)
+                              : null,
+                        ),
+                        const SizedBox(width: 2),
+                        _ZoomButton(
+                          icon: Icons.zoom_in,
+                          onPressed: _zoomLevel < 30.0
+                              ? () => _zoomBy(2.0, width)
+                              : null,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
+            // ── Minimap scrollbar (visible only when zoomed) ───────────────
+            if (_zoomLevel > 1.0)
+              GestureDetector(
+                onTapUp: (d) => _onMinimapDrag(d.localPosition.dx, width),
+                onPanUpdate: (d) => _onMinimapDrag(d.localPosition.dx, width),
+                child: CustomPaint(
+                  size: Size(width, _minimapHeight),
+                  painter: _MinimapPainter(
+                    samples: widget.samples,
+                    scrollOffset: _scrollOffset,
+                    zoomLevel: _zoomLevel,
+                    trackColor: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ),
+          ],
         );
       },
+    );
+  }
+}
+
+// ── Zoom button ───────────────────────────────────────────────────────────────
+
+class _ZoomButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onPressed;
+  const _ZoomButton({required this.icon, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.black.withValues(alpha: 0.45),
+      borderRadius: BorderRadius.circular(4),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(4),
+        onTap: onPressed,
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: Icon(
+            icon,
+            size: 16,
+            color: onPressed != null
+                ? Colors.white
+                : Colors.white.withValues(alpha: 0.3),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -479,4 +583,78 @@ class _WaveformPainter extends CustomPainter {
       old.draggingEnd != draggingEnd ||
       old.zoomLevel != zoomLevel ||
       old.playbackPosition != playbackPosition;
+}
+
+// ── Minimap painter ───────────────────────────────────────────────────────────
+
+class _MinimapPainter extends CustomPainter {
+  final List<double> samples;
+  final double scrollOffset;
+  final double zoomLevel;
+  final Color trackColor;
+
+  const _MinimapPainter({
+    required this.samples,
+    required this.scrollOffset,
+    required this.zoomLevel,
+    required this.trackColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Background
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Paint()..color = const Color(0xFF0D0D1A),
+    );
+
+    if (samples.isEmpty) return;
+
+    // Full waveform overview (downsampled to width)
+    final wavePaint = Paint()
+      ..color = trackColor.withValues(alpha: 0.4)
+      ..strokeWidth = 1.0;
+    final barCount = size.width.toInt().clamp(1, samples.length);
+    final samplesPerBar = samples.length / barCount;
+    final cy = size.height / 2;
+
+    for (int col = 0; col < barCount; col++) {
+      final iStart = (col * samplesPerBar).floor().clamp(0, samples.length - 1);
+      final iEnd = ((col + 1) * samplesPerBar).ceil().clamp(1, samples.length);
+      double peak = samples[iStart];
+      for (int i = iStart + 1; i < iEnd; i++) {
+        if (samples[i] > peak) peak = samples[i];
+      }
+      final halfH = peak * cy * 0.85;
+      canvas.drawLine(
+        Offset(col.toDouble(), cy - halfH),
+        Offset(col.toDouble(), cy + halfH),
+        wavePaint,
+      );
+    }
+
+    // Viewport window highlight
+    final visibleFraction = 1.0 / zoomLevel;
+    final winLeft = scrollOffset * size.width;
+    final winWidth = visibleFraction * size.width;
+    canvas.drawRect(
+      Rect.fromLTWH(winLeft, 0, winWidth, size.height),
+      Paint()..color = trackColor.withValues(alpha: 0.18),
+    );
+    // Window border
+    canvas.drawRect(
+      Rect.fromLTWH(winLeft, 0, winWidth, size.height),
+      Paint()
+        ..color = trackColor.withValues(alpha: 0.7)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_MinimapPainter old) =>
+      old.samples != samples ||
+      old.scrollOffset != scrollOffset ||
+      old.zoomLevel != zoomLevel ||
+      old.trackColor != trackColor;
 }

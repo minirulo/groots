@@ -454,6 +454,10 @@ class _VinylSyncViewState extends State<VinylSyncView>
     // Probe actual file duration so sample↔time mapping is exact.
     _recordingDuration = await _recorder.probeInfo(_recordingPath!);
 
+    // Regenerate waveform from the file rather than trusting the live
+    // amplitude stream, which can silently drop samples on long recordings.
+    final samples = await _recorder.generateWaveform(_recordingPath!, 1200);
+
     final splits = _autoSplitsFromDiscogs();
     final names = _defaultTrackNames(splits);
     for (final c in _trackCtrls) {
@@ -462,6 +466,7 @@ class _VinylSyncViewState extends State<VinylSyncView>
 
     setState(() {
       _isRecording = false;
+      _samples = samples;
       _splits = splits;
       _trackCtrls = names.map((n) => TextEditingController(text: n)).toList();
       _step = _VinylStep.edit;
