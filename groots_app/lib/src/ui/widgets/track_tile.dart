@@ -16,6 +16,7 @@ class TrackTile extends StatelessWidget {
   final VoidCallback? onPlay;
   final VoidCallback? onPin;
   final VoidCallback? onDelete;
+  final VoidCallback? onReplaceRecording;
   final VoidCallback? onTap;
   final bool showLibraryActions;
 
@@ -25,6 +26,7 @@ class TrackTile extends StatelessWidget {
     this.onPlay,
     this.onPin,
     this.onDelete,
+    this.onReplaceRecording,
     this.onTap,
     this.showLibraryActions = false,
   });
@@ -105,7 +107,10 @@ class TrackTile extends StatelessWidget {
                 PopupMenuButton<_TrackAction>(
                   icon: const Icon(Icons.more_vert),
                   onSelected: (action) => _handleAction(context, action),
-                  itemBuilder: (_) => _buildMenuItems(includePlay: false),
+                  itemBuilder: (_) => _buildMenuItems(
+                    includePlay: false,
+                    includeLibraryActions: showLibraryActions,
+                  ),
                 ),
               ],
             ),
@@ -137,6 +142,15 @@ class TrackTile extends StatelessWidget {
           child: ListTile(
             leading: Icon(Icons.push_pin_outlined),
             title: Text('Pin to server'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+      if (includeLibraryActions)
+        const PopupMenuItem(
+          value: _TrackAction.replaceRecording,
+          child: ListTile(
+            leading: Icon(Icons.swap_horiz),
+            title: Text('Replace Recording'),
             contentPadding: EdgeInsets.zero,
           ),
         ),
@@ -206,6 +220,8 @@ class TrackTile extends StatelessWidget {
         onPlay?.call();
       case _TrackAction.pin:
         onPin?.call();
+      case _TrackAction.replaceRecording:
+        onReplaceRecording?.call();
       case _TrackAction.delete:
         if (onDelete != null) _confirmDelete(context, onDelete!);
       case _TrackAction.addToPlaylist:
@@ -316,6 +332,7 @@ class TrackTile extends StatelessWidget {
 enum _TrackAction {
   play,
   pin,
+  replaceRecording,
   delete,
   addToPlaylist,
   assignToAlbum,

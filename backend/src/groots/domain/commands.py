@@ -62,6 +62,17 @@ class UploadTrack:
     hint_track_number: int | None = None
 
 
+@dataclass
+class ReplaceRecording:
+    """Replace the audio file of an existing track, keeping all metadata."""
+
+    user_id: str
+    track_id: str
+    content: bytes
+    file_size_bytes: int
+    mime_type: str
+
+
 # ── Album commands ────────────────────────────────────────────────────────────
 
 

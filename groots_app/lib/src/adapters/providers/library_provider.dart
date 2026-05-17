@@ -69,6 +69,30 @@ class LibraryProvider {
     return jsonDecode(body) as Map<String, dynamic>;
   }
 
+  /// Replace the audio file of an existing track.
+  /// All metadata (title, artist, album…) is preserved on the server.
+  /// Returns `{track_id, cid}` with the new CID.
+  Future<Map<String, dynamic>> replaceRecording({
+    required String trackId,
+    required Uint8List bytes,
+    required String filename,
+    required String mimeType,
+  }) async {
+    final token = await _storage.getToken();
+    final req = http.MultipartRequest(
+      'PUT',
+      Uri.parse('$_base/library/$trackId/recording'),
+    );
+    if (token != null) req.headers['Authorization'] = 'Bearer $token';
+    req.files.add(
+      http.MultipartFile.fromBytes('file', bytes, filename: filename),
+    );
+    final streamed = await req.send();
+    final body = await streamed.stream.bytesToString();
+    if (streamed.statusCode != 200) throw Exception(body);
+    return jsonDecode(body) as Map<String, dynamic>;
+  }
+
   Future<void> removeTrack(String trackId) async {
     final res = await _client.delete(Uri.parse('$_base/library/$trackId'));
     if (res.statusCode != 204) throw Exception(res.body);
