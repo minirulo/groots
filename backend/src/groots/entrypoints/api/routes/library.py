@@ -17,7 +17,13 @@ from fastapi.responses import JSONResponse
 
 from groots.adapters.impl.metadata_extractor import MetadataExtractor
 from groots.config import settings
-from groots.domain.commands import AddTrack, PinTrack, RemoveTrack, ReplaceRecording, UploadTrack
+from groots.domain.commands import (
+    AddTrack,
+    PinTrack,
+    RemoveTrack,
+    ReplaceRecording,
+    UploadTrack,
+)
 from groots.domain.errors import GrootException
 from groots.entrypoints.api import views
 from groots.entrypoints.api.auth import get_current_oauth_user, OAuthUser
@@ -234,7 +240,6 @@ async def upload_track(
 
 
 @router.post("/extract-cover")
-@inject
 async def extract_cover(
     file: Annotated[UploadFile, File()],
     _: Annotated[

@@ -58,7 +58,10 @@ class _VinylSyncViewState extends State<VinylSyncView>
   final VinylRecorder _recorder = VinylRecorder();
   List<InputDevice> _devices = [];
   InputDevice? _selectedDevice;
+  List<InputDevice> _outputDevices = [];
+  InputDevice? _selectedOutputDevice;
   bool _isRecording = false;
+  bool _isMonitoring = false;
   bool _isLoadingFile = false;
   String? _recordingPath;
   Duration _elapsed = Duration.zero;
@@ -102,6 +105,7 @@ class _VinylSyncViewState extends State<VinylSyncView>
     _librarySearchCtrl.dispose();
     _elapsedTimer?.cancel();
     _ampSub?.cancel();
+    _recorder.stopMonitoring();
     _recorder.dispose();
     _positionSub?.cancel();
     _playerStateSub?.cancel();
@@ -380,21 +384,70 @@ class _VinylSyncViewState extends State<VinylSyncView>
     }
   }
 
+  // Sentinel used to represent "let the OS pick the output device".
+  static final _defaultOutputDevice = InputDevice(id: '', label: 'System default');
+
   Future<void> _loadDevices() async {
     try {
-      final devices = await _recorder.listInputDevices();
+      final inputs = await _recorder.listInputDevices();
       if (mounted) {
         setState(() {
-          _devices = devices;
-          _selectedDevice = devices.isNotEmpty ? devices.first : null;
+          _devices = inputs;
+          _selectedDevice = inputs.isNotEmpty ? inputs.first : null;
         });
       }
-    } catch (_) {
-      // Proceed with system default
+    } catch (_) {}
+
+    // Output list always starts with the system-default sentinel so the
+    // picker is always visible even if native enumeration fails.
+    final outputList = <InputDevice>[_defaultOutputDevice];
+    try {
+      outputList.addAll(await _recorder.listOutputDevices());
+    } catch (_) {}
+
+    if (mounted) {
+      setState(() {
+        _outputDevices = outputList;
+        _selectedOutputDevice = _defaultOutputDevice;
+      });
+    }
+  }
+
+  Future<void> _toggleMonitoring() async {
+    if (_isMonitoring) {
+      await _recorder.stopMonitoring();
+      _ampSub?.cancel();
+      _ampSub = null;
+      if (mounted) setState(() { _isMonitoring = false; _amplitude = -60.0; });
+    } else {
+      final hasPermission = await _recorder.hasPermission();
+      if (!hasPermission) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Microphone permission denied')),
+          );
+        }
+        return;
+      }
+      await _recorder.startMonitoring(_selectedDevice, _selectedOutputDevice);
+      _ampSub = _recorder
+          .onAmplitudeChanged(const Duration(milliseconds: 100))
+          .listen((amp) {
+            if (!mounted) return;
+            setState(() => _amplitude = amp.current);
+          });
+      if (mounted) setState(() => _isMonitoring = true);
     }
   }
 
   Future<void> _startRecording() async {
+    if (_isMonitoring) {
+      await _recorder.stopMonitoring();
+      _ampSub?.cancel();
+      _ampSub = null;
+      if (mounted) setState(() { _isMonitoring = false; _amplitude = -60.0; });
+    }
+
     final hasPermission = await _recorder.hasPermission();
     if (!hasPermission) {
       if (mounted) {
@@ -786,6 +839,11 @@ class _VinylSyncViewState extends State<VinylSyncView>
 
   /// Return to the Record step, discarding the current take but keeping Discogs data.
   Future<void> _reRecord() async {
+    if (_isMonitoring) {
+      await _recorder.stopMonitoring();
+      _ampSub?.cancel();
+      _ampSub = null;
+    }
     await _player?.stop();
     await _positionSub?.cancel();
     await _playerStateSub?.cancel();
@@ -806,6 +864,7 @@ class _VinylSyncViewState extends State<VinylSyncView>
       _endTrim = null;
       _splits = [];
       _trackCtrls = [];
+      _isMonitoring = false;
       _step = _VinylStep.record;
     });
   }
@@ -1213,7 +1272,7 @@ class _VinylSyncViewState extends State<VinylSyncView>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Device picker
+          // Device pickers
           if (_devices.isNotEmpty) ...[
             DropdownButtonFormField<InputDevice>(
               decoration: const InputDecoration(
@@ -1224,12 +1283,26 @@ class _VinylSyncViewState extends State<VinylSyncView>
               items: _devices
                   .map((d) => DropdownMenuItem(value: d, child: Text(d.label)))
                   .toList(),
-              onChanged: _isRecording
+              onChanged: _isRecording || _isMonitoring
                   ? null
                   : (v) => setState(() => _selectedDevice = v),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
           ],
+          DropdownButtonFormField<InputDevice>(
+            decoration: const InputDecoration(
+              labelText: 'Audio output',
+              border: OutlineInputBorder(),
+            ),
+            initialValue: _selectedOutputDevice,
+            items: _outputDevices
+                .map((d) => DropdownMenuItem(value: d, child: Text(d.label)))
+                .toList(),
+            onChanged: _isRecording || _isMonitoring
+                ? null
+                : (v) => setState(() => _selectedOutputDevice = v),
+          ),
+          const SizedBox(height: 16),
 
           // Side / disk picker — Discogs flow
           if (_release != null) ...[
@@ -1269,6 +1342,28 @@ class _VinylSyncViewState extends State<VinylSyncView>
           ),
 
           const Spacer(),
+
+          // Monitor toggle
+          if (!_isRecording) ...[
+            Center(
+              child: OutlinedButton.icon(
+                style: _isMonitoring
+                    ? OutlinedButton.styleFrom(
+                        foregroundColor: Theme.of(context).colorScheme.primary,
+                        side: BorderSide(
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      )
+                    : null,
+                onPressed: _toggleMonitoring,
+                icon: Icon(
+                  _isMonitoring ? Icons.graphic_eq : Icons.graphic_eq,
+                ),
+                label: Text(_isMonitoring ? 'Stop monitoring' : 'Monitor input'),
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
 
           // Record / Stop
           Center(

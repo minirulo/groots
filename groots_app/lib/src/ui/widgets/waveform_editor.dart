@@ -67,12 +67,15 @@ class _WaveformEditorState extends State<WaveformEditor> {
 
   // ── Viewport helpers ──────────────────────────────────────────────────────
 
-  int get _visibleStart =>
-      (_scrollOffset * widget.samples.length).round().clamp(0, widget.samples.length);
+  int get _visibleStart => widget.samples.isEmpty
+      ? 0
+      : (_scrollOffset * widget.samples.length).round().clamp(0, widget.samples.length);
 
-  int get _visibleEnd => (_visibleStart + widget.samples.length / _zoomLevel)
-      .round()
-      .clamp(1, widget.samples.length);
+  int get _visibleEnd => widget.samples.isEmpty
+      ? 0
+      : (_visibleStart + widget.samples.length / _zoomLevel)
+          .round()
+          .clamp(1, widget.samples.length);
 
   double _sampleToX(int sampleIdx, double width) {
     final vLen = _visibleEnd - _visibleStart;
@@ -81,8 +84,8 @@ class _WaveformEditorState extends State<WaveformEditor> {
   }
 
   int _xToSample(double x, double width, {int min = 0, int? max}) {
+    if (widget.samples.isEmpty || width == 0) return min;
     final m = max ?? widget.samples.length - 1;
-    if (widget.samples.isEmpty || width == 0) return min.clamp(min, m);
     final vLen = _visibleEnd - _visibleStart;
     return (_visibleStart + x / width * vLen).round().clamp(min, m);
   }
