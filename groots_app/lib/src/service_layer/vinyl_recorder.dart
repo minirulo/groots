@@ -34,6 +34,29 @@ class VinylRecorder {
     return await _ch.invokeMethod<bool>('hasPermission') ?? false;
   }
 
+  // ── Input monitoring ──────────────────────────────────────────────────────
+
+  Future<List<InputDevice>> listOutputDevices() async {
+    if (_fallback != null) return [];
+    final raw = await _ch.invokeListMethod<Map>('listOutputDevices') ?? [];
+    return raw
+        .map((d) => InputDevice(id: d['id'] as String, label: d['label'] as String))
+        .toList();
+  }
+
+  Future<void> startMonitoring(InputDevice? inputDevice, InputDevice? outputDevice) async {
+    if (_fallback != null) return;
+    await _ch.invokeMethod<void>('startMonitoring', {
+      'deviceId': inputDevice?.id,
+      'outputDeviceId': outputDevice?.id,
+    });
+  }
+
+  Future<void> stopMonitoring() async {
+    if (_fallback != null) return;
+    await _ch.invokeMethod<void>('stopMonitoring');
+  }
+
   // ── Recording ─────────────────────────────────────────────────────────────
 
   Future<void> start(RecordConfig config, {required String path}) async {

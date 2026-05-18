@@ -8,6 +8,12 @@ class VinylRecorder {
 
   private var engine: AVAudioEngine?
   private var audioFile: AVAudioFile?
+  // Two-engine monitoring: inputEngine taps the source, outputEngine plays it back.
+  // A single AVAudioEngine cannot bridge I/O across different HAL devices
+  // (kAUGraphErr_OutputNodeErr -10875), so we decouple them entirely.
+  private var monitorInputEngine: AVAudioEngine?
+  private var monitorOutputEngine: AVAudioEngine?
+  private var monitorPlayerNode: AVAudioPlayerNode?
   private var _amplitude: Float = -160.0
   private let lock = NSLock()
 
@@ -26,9 +32,133 @@ class VinylRecorder {
     }
   }
 
+  func listOutputDevices() -> [[String: String]] {
+    guard let ids = allAudioDeviceIDs() else { return [] }
+    return ids.compactMap { id -> [String: String]? in
+      guard outputChannelCount(for: id) > 0,
+            let uid  = stringProp(id, kAudioDevicePropertyDeviceUID),
+            let name = stringProp(id, kAudioDevicePropertyDeviceNameCFString)
+      else { return nil }
+      return ["id": uid, "label": name]
+    }
+  }
+
+  // MARK: – Input monitoring
+
+  func startMonitoring(inputDeviceUID: String?, outputDeviceUID: String?) throws {
+    stopMonitoring()
+
+    // ── Input engine ──────────────────────────────────────────────────────
+    let inEngine  = AVAudioEngine()
+    let inputNode = inEngine.inputNode
+
+    if let uid = inputDeviceUID,
+       let audioUnit = inputNode.audioUnit,
+       var devID = audioDeviceID(forUID: uid) {
+      AudioUnitSetProperty(audioUnit, kAudioOutputUnitProperty_CurrentDevice,
+                           kAudioUnitScope_Global, 0, &devID,
+                           UInt32(MemoryLayout<AudioDeviceID>.size))
+    }
+
+    // inputNode.outputFormat(forBus:) is unreliable before start() — even
+    // after prepare() the AUHAL may report 0 Hz / 0 ch.  Query CoreAudio
+    // directly to get the device's actual nominal sample rate and channel count.
+    let devID      = inputDeviceUID.flatMap { audioDeviceID(forUID: $0) }
+    let sampleRate = devID.map { nominalSampleRate(for: $0) } ?? 48000.0
+
+    // AVAudioFormat(standardFormatWithSampleRate:channels:) only accepts
+    // standard channel layouts (1 or 2).  Multi-channel devices like the ES-8
+    // report 8 ch, which causes it to return nil.  Vinyl is always stereo,
+    // so we cap at 2 for both the tap and the player.
+    let inChRaw = devID.map { inputChannelCount(for: $0) } ?? 0
+    let tapCh   = AVAudioChannelCount(inChRaw >= 2 ? 2 : max(inChRaw, 1))
+
+    // Use explicit settings rather than standardFormatWithSampleRate:channels:
+    // which silently returns nil for non-standard sample rates or channel counts.
+    let fmtSettings: [String: Any] = [
+      AVFormatIDKey:              kAudioFormatLinearPCM,
+      AVLinearPCMIsFloatKey:      true,
+      AVLinearPCMIsNonInterleaved: true,
+      AVLinearPCMBitDepthKey:     32,
+      AVSampleRateKey:            sampleRate,
+      AVNumberOfChannelsKey:      Int(tapCh),
+    ]
+    guard let tapFormat    = AVAudioFormat(settings: fmtSettings),
+          let playerFormat = AVAudioFormat(settings: fmtSettings) else {
+      throw NSError(domain: "VinylRecorder", code: -1,
+                    userInfo: [NSLocalizedDescriptionKey:
+                      "Cannot create audio format sr=\(sampleRate) ch=\(tapCh) inChRaw=\(inChRaw)"])
+    }
+
+    // ── Output engine ─────────────────────────────────────────────────────
+    let outEngine  = AVAudioEngine()
+    let playerNode = AVAudioPlayerNode()
+    outEngine.attach(playerNode)
+    outEngine.connect(playerNode, to: outEngine.mainMixerNode, format: playerFormat)
+
+    if let uid = outputDeviceUID,
+       let audioUnit = outEngine.outputNode.audioUnit,
+       var devID = audioDeviceID(forUID: uid) {
+      AudioUnitSetProperty(audioUnit, kAudioOutputUnitProperty_CurrentDevice,
+                           kAudioUnitScope_Global, 0, &devID,
+                           UInt32(MemoryLayout<AudioDeviceID>.size))
+    }
+    try outEngine.start()
+
+    // ── Tap: amplitude + forward to output ───────────────────────────────
+    inputNode.installTap(onBus: 0, bufferSize: 4096, format: tapFormat) { [weak self, weak playerNode] buf, _ in
+      guard let self else { return }
+
+      if let data = buf.floatChannelData {
+        var peak: Float = 0
+        for ch in 0..<Int(buf.format.channelCount) {
+          for i in 0..<Int(buf.frameLength) {
+            let v = abs(data[ch][i]); if v > peak { peak = v }
+          }
+        }
+        self.lock.lock()
+        self._amplitude = peak > 0 ? max(-160, 20 * log10(peak)) : -160
+        self.lock.unlock()
+      }
+
+      guard let playerNode,
+            let mixed = AVAudioPCMBuffer(pcmFormat: playerFormat,
+                                         frameCapacity: buf.frameLength),
+            let srcData = buf.floatChannelData,
+            let dstData = mixed.floatChannelData else { return }
+
+      mixed.frameLength = buf.frameLength
+      let frames = Int(buf.frameLength)
+      for ch in 0..<Int(tapCh) {
+        memcpy(dstData[ch], srcData[ch], frames * MemoryLayout<Float>.size)
+      }
+
+      playerNode.scheduleBuffer(mixed)
+      if !playerNode.isPlaying { playerNode.play() }
+    }
+
+    try inEngine.start()
+
+    monitorInputEngine  = inEngine
+    monitorOutputEngine = outEngine
+    monitorPlayerNode   = playerNode
+  }
+
+  func stopMonitoring() {
+    monitorInputEngine?.inputNode.removeTap(onBus: 0)
+    monitorInputEngine?.stop()
+    monitorInputEngine = nil
+    monitorPlayerNode?.stop()
+    monitorPlayerNode = nil
+    monitorOutputEngine?.stop()
+    monitorOutputEngine = nil
+    lock.lock(); _amplitude = -160.0; lock.unlock()
+  }
+
   // MARK: – Recording
 
   func start(deviceUID: String?, path: String) throws {
+    stopMonitoring()
     stop()
 
     let engine = AVAudioEngine()
@@ -136,10 +266,10 @@ class VinylRecorder {
     return ids
   }
 
-  private func inputChannelCount(for deviceID: AudioDeviceID) -> Int {
+  private func channelCount(for deviceID: AudioDeviceID, scope: AudioObjectPropertyScope) -> Int {
     var addr = AudioObjectPropertyAddress(
       mSelector: kAudioDevicePropertyStreamConfiguration,
-      mScope:    kAudioDevicePropertyScopeInput,
+      mScope:    scope,
       mElement:  kAudioObjectPropertyElementMain
     )
     var size: UInt32 = 0
@@ -153,6 +283,27 @@ class VinylRecorder {
 
     let abl = raw.assumingMemoryBound(to: AudioBufferList.self)
     return UnsafeMutableAudioBufferListPointer(abl).reduce(0) { $0 + Int($1.mNumberChannels) }
+  }
+
+  private func inputChannelCount(for deviceID: AudioDeviceID) -> Int {
+    channelCount(for: deviceID, scope: kAudioDevicePropertyScopeInput)
+  }
+
+  private func outputChannelCount(for deviceID: AudioDeviceID) -> Int {
+    channelCount(for: deviceID, scope: kAudioDevicePropertyScopeOutput)
+  }
+
+  private func nominalSampleRate(for deviceID: AudioDeviceID) -> Double {
+    var addr = AudioObjectPropertyAddress(
+      mSelector: kAudioDevicePropertyNominalSampleRate,
+      mScope:    kAudioObjectPropertyScopeGlobal,
+      mElement:  kAudioObjectPropertyElementMain
+    )
+    var rate: Float64 = 0
+    var size = UInt32(MemoryLayout<Float64>.size)
+    guard AudioObjectGetPropertyData(deviceID, &addr, 0, nil, &size, &rate) == noErr,
+          rate > 0 else { return 48000.0 }
+    return rate
   }
 
   private func stringProp(_ deviceID: AudioDeviceID,

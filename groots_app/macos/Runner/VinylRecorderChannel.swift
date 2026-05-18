@@ -35,6 +35,28 @@ class VinylRecorderChannel {
                             details: nil))
       }
 
+    case "listOutputDevices":
+      result(recorder.listOutputDevices())
+
+    case "startMonitoring":
+      let args = call.arguments as? [String: Any]
+      let inputDeviceUID  = args?["deviceId"]       as? String
+      let rawOutput       = args?["outputDeviceId"] as? String
+      let outputDeviceUID = (rawOutput?.isEmpty == false) ? rawOutput : nil
+      do {
+        try recorder.startMonitoring(inputDeviceUID: inputDeviceUID,
+                                     outputDeviceUID: outputDeviceUID)
+        result(nil)
+      } catch {
+        result(FlutterError(code: "MONITOR_ERROR",
+                            message: error.localizedDescription,
+                            details: nil))
+      }
+
+    case "stopMonitoring":
+      recorder.stopMonitoring()
+      result(nil)
+
     case "stop":
       recorder.stop()
       result(nil)
