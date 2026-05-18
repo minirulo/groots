@@ -32,7 +32,7 @@ class AlbumResponse(BaseModel):
     description: str | None
     cover_cid: str | None
     recording_format: RecordingFormat | None
-    created_by: str | None
+    user_id: str | None
     created_at: datetime
 
 

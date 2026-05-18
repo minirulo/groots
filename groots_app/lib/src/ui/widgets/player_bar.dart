@@ -114,7 +114,7 @@ class _MiniPlayer extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      track.artist,
+                      player.currentAlbum.value?.artist ?? '',
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
@@ -365,7 +365,7 @@ class _PlayerContent extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                track.artist,
+                player.currentAlbum.value?.artist ?? '',
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.75),
                   fontSize: 16,
@@ -373,9 +373,9 @@ class _PlayerContent extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-              if (track.album != null)
+              if (player.currentAlbum.value?.title != null)
                 Text(
-                  track.album!,
+                  player.currentAlbum.value!.title,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.5),
                     fontSize: 13,
@@ -654,7 +654,7 @@ class _QueueTrackTile extends StatelessWidget {
         ),
       ),
       subtitle: Text(
-        t.artist,
+        item.album?.artist ?? '',
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(color: Colors.white38, fontSize: 12),

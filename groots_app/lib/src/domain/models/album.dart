@@ -9,7 +9,7 @@ class Album {
   final String? description;
   final String? coverCid;
   final String? recordingFormat;
-  final String? createdBy;
+  final String? userId;
 
   const Album({
     required this.id,
@@ -20,7 +20,7 @@ class Album {
     this.description,
     this.coverCid,
     this.recordingFormat,
-    this.createdBy,
+    this.userId,
   });
 
   factory Album.fromJson(Map<String, dynamic> json) => Album(
@@ -32,6 +32,6 @@ class Album {
         description: json['description'] as String?,
         coverCid: json['cover_cid'] as String?,
         recordingFormat: json['recording_format'] as String?,
-        createdBy: json['created_by'] as String?,
+        userId: json['user_id'] as String?,
       );
 }

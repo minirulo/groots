@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get/get.dart';
 
+import '../../domain/models/album.dart';
+import '../../service_layer/blocs/album/album_bloc.dart';
+import '../../service_layer/blocs/album/album_state.dart';
 import '../../service_layer/blocs/library/library_bloc.dart';
 import '../../service_layer/blocs/library/library_state.dart';
 import '../../service_layer/ipfs_local_node.dart';
@@ -12,14 +15,14 @@ class GenresView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<LibraryBloc, LibraryState>(
+    return BlocBuilder<AlbumBloc, AlbumState>(
       builder: (context, state) {
-        if (state.status == LibraryStatus.loading) {
+        if (state.status == AlbumStatus.loading) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        final genres = state.tracks
-            .map((t) => t.genre)
+        final genres = state.albums
+            .map((a) => a.genre)
             .whereType<String>()
             .toSet()
             .toList()
@@ -27,13 +30,16 @@ class GenresView extends StatelessWidget {
 
         if (genres.isEmpty) {
           return const Center(
-            child: Text('No genres yet.\nAdd genre metadata to your tracks.'),
+            child: Text('No genres yet.\nAdd genre metadata to your albums.'),
           );
         }
 
         return ListView.builder(
           itemCount: genres.length,
-          itemBuilder: (context, i) => _GenreTile(genre: genres[i]),
+          itemBuilder: (context, i) => _GenreTile(
+            genre: genres[i],
+            albums: state.albums.where((a) => a.genre == genres[i]).toList(),
+          ),
         );
       },
     );
@@ -42,7 +48,9 @@ class GenresView extends StatelessWidget {
 
 class _GenreTile extends StatelessWidget {
   final String genre;
-  const _GenreTile({required this.genre});
+  final List<Album> albums;
+
+  const _GenreTile({required this.genre, required this.albums});
 
   static const _genreColors = [
     Colors.deepPurple,
@@ -59,14 +67,11 @@ class _GenreTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final state = context.read<LibraryBloc>().state;
-    final tracks = state.tracks.where((t) => t.genre == genre).toList();
-
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () => _showGenreDetail(context, tracks),
+        onTap: () => _showGenreDetail(context),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: BoxDecoration(
@@ -88,7 +93,7 @@ class _GenreTile extends StatelessWidget {
                             .textTheme
                             .titleMedium
                             ?.copyWith(fontWeight: FontWeight.bold)),
-                    Text('${tracks.length} track${tracks.length == 1 ? '' : 's'}',
+                    Text('${albums.length} album${albums.length == 1 ? '' : 's'}',
                         style: Theme.of(context).textTheme.bodySmall),
                   ],
                 ),
@@ -101,7 +106,7 @@ class _GenreTile extends StatelessWidget {
     );
   }
 
-  void _showGenreDetail(BuildContext context, List tracks) {
+  void _showGenreDetail(BuildContext context) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -116,32 +121,48 @@ class _GenreTile extends StatelessWidget {
                 child: Icon(Icons.music_note, color: _color),
               ),
               title: Text(genre, style: Theme.of(ctx).textTheme.titleLarge),
-              subtitle: Text('${tracks.length} tracks'),
+              subtitle: Text('${albums.length} albums'),
             ),
             const Divider(),
             Expanded(
-              child: ListView.builder(
-                controller: scrollCtrl,
-                itemCount: tracks.length,
-                itemBuilder: (_, i) {
-                  final t = tracks[i];
-                  return ListTile(
-                    leading: const Icon(Icons.music_note),
-                    title: Text(t.title),
-                    subtitle: Text(t.artist),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.play_arrow),
-                      onPressed: t.pinned
-                          ? () {
-                              final player = Get.find<PlayerService>();
-                              player.play(
-                                t,
-                                Get.find<IpfsLocalNode>().streamUrl(t.cid, t.mimeType),
-                              );
-                              Navigator.pop(ctx);
-                            }
-                          : null,
-                    ),
+              child: BlocBuilder<LibraryBloc, LibraryState>(
+                builder: (context, libraryState) {
+                  return ListView.builder(
+                    controller: scrollCtrl,
+                    itemCount: albums.length,
+                    itemBuilder: (_, i) {
+                      final album = albums[i];
+                      final tracks = libraryState.tracks
+                          .where((t) => t.albumId == album.id)
+                          .toList();
+                      return ListTile(
+                        leading: const Icon(Icons.album),
+                        title: Text(album.title),
+                        subtitle: Text(
+                          [
+                            album.artist,
+                            '${tracks.length} track${tracks.length == 1 ? '' : 's'}',
+                          ].join(' · '),
+                        ),
+                        trailing: tracks.any((t) => t.pinned)
+                            ? IconButton(
+                                icon: const Icon(Icons.play_arrow),
+                                onPressed: () {
+                                  final playable =
+                                      tracks.where((t) => t.pinned).toList();
+                                  Get.find<PlayerService>().playQueue(
+                                    playable,
+                                    0,
+                                    (t) => Get.find<IpfsLocalNode>()
+                                        .streamUrl(t.cid, t.mimeType),
+                                    albumsById: {album.id: album},
+                                  );
+                                  Navigator.pop(ctx);
+                                },
+                              )
+                            : null,
+                      );
+                    },
                   );
                 },
               ),

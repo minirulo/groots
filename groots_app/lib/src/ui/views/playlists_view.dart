@@ -4,6 +4,8 @@ import 'package:get/get.dart';
 
 import '../../domain/models/playlist.dart';
 import '../../domain/models/track.dart';
+import '../../service_layer/blocs/album/album_bloc.dart';
+import '../../service_layer/blocs/album/album_state.dart';
 import '../../service_layer/blocs/library/library_bloc.dart';
 import '../../service_layer/blocs/library/library_state.dart';
 import '../../service_layer/blocs/playlist/playlist_bloc.dart';
@@ -189,10 +191,17 @@ class _PlaylistTile extends StatelessWidget {
                         final t = tracks[i];
                         final playableIndex =
                             playableTracks.indexWhere((p) => p.id == t.id);
+                        final albumsById = {
+                          for (final a in context.read<AlbumBloc>().state.albums)
+                            a.id: a,
+                        };
+                        final artist = t.albumId != null
+                            ? albumsById[t.albumId!]?.artist
+                            : null;
                         return ListTile(
                           leading: const Icon(Icons.music_note),
                           title: Text(t.title),
-                          subtitle: Text(t.artist),
+                          subtitle: artist != null ? Text(artist) : null,
                           onTap: t.pinned
                               ? () => _playPlaylist(playableTracks, playableIndex)
                               : null,

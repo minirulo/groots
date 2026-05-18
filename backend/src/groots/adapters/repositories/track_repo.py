@@ -7,18 +7,19 @@ class TrackRepository(BaseMongoRepository[Track]):
     collection_name = "tracks"
     model = Track
 
-    async def list_by_user(self, user_id: str) -> list[Track]:
-        cursor = self.collection.find({"user_id": user_id}, session=self.session)
+    async def list_by_album_ids(self, album_ids: list[str]) -> list[Track]:
+        ids = [aid for aid in album_ids if aid]
+        if not ids:
+            return []
+        cursor = self.collection.find({"album_id": {"$in": ids}}, session=self.session)
         return [from_document(doc, Track) async for doc in cursor]
 
     async def list_by_album(self, album_id: str) -> list[Track]:
         cursor = self.collection.find({"album_id": album_id}, session=self.session)
         return [from_document(doc, Track) async for doc in cursor]
 
-    async def get_by_cid(self, cid: str, user_id: str) -> Track | None:
-        doc = await self.collection.find_one(
-            {"cid": cid, "user_id": user_id}, session=self.session
-        )
+    async def get_by_cid(self, cid: str) -> Track | None:
+        doc = await self.collection.find_one({"cid": cid}, session=self.session)
         return from_document(doc, Track) if doc else None
 
     async def backfill_null_disc_number(self, album_id: str, disc_number: int) -> None:

@@ -17,17 +17,12 @@ class LoginUser:
 
 @dataclass
 class AddTrack:
-    user_id: str
     cid: str
     title: str
-    artist: str
     duration_seconds: int
     file_size_bytes: int
-    album: str | None = None
-    album_id: str | None = None
+    album_id: str
     track_number: int | None = None
-    year: int | None = None
-    genre: str | None = None
     mime_type: str = "audio/mpeg"
     source: str | None = None
     disc_number: int | None = None
@@ -80,7 +75,7 @@ class ReplaceRecording:
 class CreateAlbum:
     title: str
     artist: str
-    created_by: str | None = None  # user_id of creator; None for system
+    user_id: str | None = None  # owner of this album; None for system
     year: int | None = None
     genre: str | None = None
     description: str | None = None

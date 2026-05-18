@@ -30,8 +30,6 @@ async def handle_ingest_central_track(
         parts = stem.split(" - ", 1)
         title = meta.title or (parts[1] if len(parts) > 1 else stem)
         artist = meta.artist or (parts[0] if len(parts) > 1 else "Unknown")
-        year = meta.year
-        genre = meta.genre
         track_number = meta.track_number
 
         # ── fingerprint ───────────────────────────────────────────────────────
@@ -47,25 +45,19 @@ async def handle_ingest_central_track(
 
         # ── album ─────────────────────────────────────────────────────────────
         album_id: str | None = None
-        album_title: str | None = meta.album
-        if album_title and artist:
+        if meta.album and artist:
             album_id, _ = await _resolve_album(
-                album_title, artist, settings.SYSTEM_USER_ID, uow
+                meta.album, artist, settings.SYSTEM_USER_ID, uow
             )
 
         # ── persist track ─────────────────────────────────────────────────────
         track = Track(
-            user_id=settings.SYSTEM_USER_ID,
             cid=cid,
             title=title,
-            artist=artist,
             duration_seconds=duration,
             file_size_bytes=cmd.file_size_bytes,
-            album=album_title,
             album_id=album_id,
             track_number=track_number,
-            year=year,
-            genre=genre,
             mime_type=cmd.mime_type,
             pinned=True,
         )

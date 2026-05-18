@@ -8,6 +8,8 @@ import '../../domain/models/track.dart';
 import '../../service_layer/blocs/admin/admin_bloc.dart';
 import '../../service_layer/blocs/admin/admin_event.dart';
 import '../../service_layer/blocs/admin/admin_state.dart';
+import '../../service_layer/blocs/album/album_bloc.dart';
+import '../../service_layer/blocs/album/album_state.dart';
 import 'package:get/get.dart';
 
 class AdminView extends StatefulWidget {
@@ -99,10 +101,24 @@ class _CentralLibraryTab extends StatelessWidget {
             Expanded(
               child: state.centralLibrary.isEmpty
                   ? const Center(child: Text('Central library is empty.'))
-                  : ListView.builder(
-                      itemCount: state.centralLibrary.length,
-                      itemBuilder: (_, i) =>
-                          _CentralTrackTile(track: state.centralLibrary[i]),
+                  : BlocBuilder<AlbumBloc, AlbumState>(
+                      builder: (context, albumState) {
+                        final albumsById = {
+                          for (final a in albumState.albums) a.id: a,
+                        };
+                        return ListView.builder(
+                          itemCount: state.centralLibrary.length,
+                          itemBuilder: (_, i) {
+                            final t = state.centralLibrary[i];
+                            return _CentralTrackTile(
+                              track: t,
+                              album: t.albumId != null
+                                  ? albumsById[t.albumId!]
+                                  : null,
+                            );
+                          },
+                        );
+                      },
                     ),
             ),
           ],
@@ -147,20 +163,21 @@ class _CentralLibraryTab extends StatelessWidget {
 
 class _CentralTrackTile extends StatelessWidget {
   final Track track;
-  const _CentralTrackTile({required this.track});
+  final Album? album;
+  const _CentralTrackTile({required this.track, this.album});
 
   @override
   Widget build(BuildContext context) {
-    final sub = [
-      track.artist,
-      if (track.album != null) track.album!,
-      if (track.year != null) '${track.year}',
-    ].join(' · ');
+    final parts = [
+      if (album?.artist != null) album!.artist,
+      if (album?.title != null) album!.title,
+      if (album?.year != null) '${album!.year}',
+    ];
 
     return ListTile(
       leading: const CircleAvatar(child: Icon(Icons.music_note)),
       title: Text(track.title),
-      subtitle: Text(sub),
+      subtitle: parts.isNotEmpty ? Text(parts.join(' · ')) : null,
       trailing: Text(
         track.durationFormatted,
         style: Theme.of(context).textTheme.bodySmall,

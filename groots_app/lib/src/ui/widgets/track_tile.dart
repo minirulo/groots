@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get/get.dart';
 
+import '../../domain/models/album.dart';
 import '../../domain/models/track.dart';
 import '../../service_layer/blocs/album/album_bloc.dart';
 import '../../service_layer/blocs/album/album_event.dart';
@@ -13,6 +14,7 @@ import '../../service_layer/player_service.dart';
 
 class TrackTile extends StatelessWidget {
   final Track track;
+  final Album? album;
   final VoidCallback? onPlay;
   final VoidCallback? onPin;
   final VoidCallback? onDelete;
@@ -23,6 +25,7 @@ class TrackTile extends StatelessWidget {
   const TrackTile({
     super.key,
     required this.track,
+    this.album,
     this.onPlay,
     this.onPin,
     this.onDelete,
@@ -44,8 +47,7 @@ class TrackTile extends StatelessWidget {
       title: Text(track.title, overflow: TextOverflow.ellipsis),
       subtitle: Text(
         [
-          track.artist,
-          if (track.album != null) track.album!,
+          if (album?.artist != null) album!.artist,
           if (track.discNumber != null) 'Disc ${track.discNumber}',
           if (track.side != null) 'Side ${track.side}',
         ].join(' · '),

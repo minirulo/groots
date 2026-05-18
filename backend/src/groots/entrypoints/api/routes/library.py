@@ -62,17 +62,12 @@ async def add_track(
     try:
         return await bus.handle(
             AddTrack(
-                user_id=current_user.user_id,
                 cid=body.cid,
                 title=body.title,
-                artist=body.artist,
                 duration_seconds=body.duration_seconds,
                 file_size_bytes=body.file_size_bytes,
-                album=body.album,
                 album_id=body.album_id,
                 track_number=body.track_number,
-                year=body.year,
-                genre=body.genre,
                 mime_type=body.mime_type,
                 source=body.source,
                 disc_number=body.disc_number,
